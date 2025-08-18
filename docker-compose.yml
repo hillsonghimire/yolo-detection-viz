@@ -91,7 +91,7 @@ services:
   frontend:
     build: ./frontend
     environment:
-      VITE_API_URL: "http://localhost:8000"
+      VITE_API_URL: "http://backend:8000"
     command: sh -lc "npm install && npm run dev -- --host 0.0.0.0"
     volumes:
       - ./frontend:/app

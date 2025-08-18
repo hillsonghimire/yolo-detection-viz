@@ -1,7 +1,16 @@
 FROM node:20-alpine
+
 WORKDIR /app
-COPY package.json /app/
+
+# Install deps first for better caching
+COPY package.json package-lock.json* ./
 RUN npm install
-COPY . /app/
+
+# Copy the rest
+COPY . .
+
+# Vite already binds 0.0.0.0 in vite.config.js
 EXPOSE 5173
-# Command is provided by docker-compose to run dev server
+
+# Run via compose: npm run dev
+CMD ["npm", "run", "dev"]

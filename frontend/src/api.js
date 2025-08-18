@@ -1,27 +1,16 @@
-// import axios from "axios";
-// const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Single request to backend (do not call again on slider change)
+const BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
-// export const runDetection = (formData) => {
-//   return axios.post(`${API_URL}/api/detect/basic/`, formData, {
-//     headers: { "Content-Type": "multipart/form-data" },
-//   });
-// };
-
-
-// tiny helper for POSTing the image + confidence
-export async function detectBasic({ file, confidence, apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000' }) {
+export async function detectOnce(file, opts={}){
   const fd = new FormData();
-  fd.append('image', file);
-  fd.append('confidence', String(confidence));
+  fd.append("file", file);
+  // If your backend accepts a confidence parameter, send a low one to receive all detections
+  if(opts.min_conf != null) fd.append("conf", String(opts.min_conf));
 
-  const res = await fetch(`${apiBase}/api/detect/basic/`, {
-    method: 'POST',
-    body: fd,
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`Detection failed: ${res.status} ${txt}`);
+  const res = await fetch(`${BASE}/api/detect/basic/`, { method: "POST", body: fd });
+  if(!res.ok){
+    const msg = await res.text().catch(()=>"" );
+    throw new Error(`HTTP ${res.status} ${msg}`);
   }
   return res.json();
 }

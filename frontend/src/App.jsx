@@ -1,70 +1,168 @@
-import { useRef, useState } from "react";
-import ObbCanvas from "./components/ObbCanvas.jsx";
-import { detectBasic } from "./lib/api.js";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { detectOnce } from "./api.js";
+import Controls from "./components/Controls.jsx";
+import OBBViewer from "./components/OBBViewer.jsx";
+import Uploader from "./components/Uploader.jsx";
 
-export default function App() {
-  const [file, setFile] = useState(null);
-  const [imgEl, setImgEl] = useState(null);
-  const [detections, setDetections] = useState([]);
-  const [meta, setMeta] = useState(null);
-  const [conf, setConf] = useState(0.25);
-  const inputRef = useRef(null);
+export default function App(){
+  const [imageFile, setImageFile] = useState(null);
+  const [imageURL, setImageURL] = useState(null);
+  const [rawDetections, setRawDetections] = useState([]); // full set from backend (one request)
+  const [meta, setMeta] = useState(null);                 // {image_width, image_height}
+  const [threshold, setThreshold] = useState(0.3);
+  const [showLabels, setShowLabels] = useState(true);
+  const [lineWidth, setLineWidth] = useState(2);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  const onPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
+  // URL cleanup
+  useEffect(()=>()=>{ if(imageURL) URL.revokeObjectURL(imageURL) },[imageURL]);
 
-    // preview
-    const url = URL.createObjectURL(f);
-    const img = new Image();
-    img.onload = () => setImgEl(img);
-    img.src = url;
+  const filtered = useMemo(()=> rawDetections.filter(d => (d.confidence ?? d.conf ?? 0) >= threshold), [rawDetections, threshold]);
+
+  const onFile = (f)=>{
+    setImageFile(f || null);
+    setError("");
+    if(f){ setImageURL(URL.createObjectURL(f)); }
+    else { setImageURL(null); setRawDetections([]); setMeta(null); }
   };
 
-  const run = async () => {
-    if (!file) return;
-    setDetections([]);
-    setMeta(null);
-    const data = await detectBasic({ file, confidence: conf });
-    // backend now returns polygon-only detections
-    setDetections(data.detections || []);
-    setMeta({ image_width: data.image_width, image_height: data.image_height });
+  const onRun = async ()=>{
+    if(!imageFile){ setError("Choose an image first."); return; }
+    setBusy(true); setError("");
+    try{
+      // IMPORTANT: we do only one request here.
+      // Ask backend for a low threshold to receive the full set, then we filter client-side.
+      const data = await detectOnce(imageFile, { min_conf: 0.05 });
+      // Normalize detections & meta
+      const { detections, meta } = normalizeResponse(data);
+      setRawDetections(detections || []);
+      setMeta(meta || null);
+      // Optional: auto-adjust slider suggestion
+      if(detections && detections.length){
+        const med = median(detections.map(d => d.confidence ?? 0));
+        if(med>0){ setThreshold(Math.max(0.1, Math.min(0.8, med))); }
+      }
+    }catch(e){
+      setError(e?.message || String(e));
+    }finally{
+      setBusy(false);
+    }
   };
 
   return (
-    <div style={{ padding: 16, maxWidth: 1100, margin: "0 auto", fontFamily: "ui-sans-serif, system-ui" }}>
-      <h2>YOLO OBB Detection</h2>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <input ref={inputRef} type="file" accept="image/*" onChange={onPick} />
-        <button onClick={run} disabled={!file}>Start Processing</button>
-        <div>Selected: {file?.name || "—"}</div>
+    <div className="container">
+      <h2 style={{marginTop:8, marginBottom:12}}>OBB Detection Viewer</h2>
+      <div className="row">
+        <div className="col card">
+          <div className="label">1) Upload & Run</div>
+          <Uploader onFile={onFile} />
+          <div style={{display:'flex', gap:8, marginTop:10}}>
+            <button className="btn" onClick={onRun} disabled={!imageFile||busy}>
+              {busy ? "Running..." : "Run detection (one request)"}
+            </button>
+            {error && <div className="small" style={{color:'#ffb4b4'}}>{error}</div>}
+          </div>
+          <hr/>
+          <div className="label">2) Display Controls (client-side filter)</div>
+          <Controls
+            threshold={threshold}
+            setThreshold={setThreshold}
+            showLabels={showLabels}
+            setShowLabels={setShowLabels}
+            lineWidth={lineWidth}
+            setLineWidth={setLineWidth}
+          />
+        </div>
+        <div className="col card">
+          <div className="label">Preview</div>
+          <OBBViewer
+            imageURL={imageURL}
+            detections={filtered}
+            rawDetections={rawDetections}
+            meta={meta}
+            showLabels={showLabels}
+            lineWidth={lineWidth}
+          />
+          <div className="legend" style={{marginTop:10}}>
+            <span className="badge">Detections: {filtered.length} / {rawDetections.length}</span>
+            {meta && <span className="badge">Src: {meta.image_width}×{meta.image_height}</span>}
+          </div>
+        </div>
       </div>
-
-      <div style={{ marginTop: 16 }}>
-        <div>Confidence: {conf.toFixed(2)}</div>
-        <input
-          type="range"
-          min="0.01"
-          max="0.99"
-          step="0.01"
-          value={conf}
-          onChange={(e) => setConf(parseFloat(e.target.value))}
-          style={{ width: 320 }}
-        />
-        <button onClick={run} disabled={!file} style={{ marginLeft: 8 }}>
-          Re-run with confidence
-        </button>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        {imgEl ? (
-          <ObbCanvas image={imgEl} detections={detections} meta={meta} width={1000} />
-        ) : (
-          <div style={{ color: "#666" }}>Pick an image to preview.</div>
-        )}
-      </div>
+      <p className="small" style={{marginTop:12}}>
+        Slider updates never call the backend. Detection results are filtered and re-rendered entirely in the browser.
+      </p>
     </div>
   );
+}
+
+// ---- helpers ----
+function median(arr){
+  if(!arr.length) return 0;
+  const s = [...arr].sort((a,b)=>a-b);
+  const m = Math.floor(s.length/2);
+  return s.length%2 ? s[m] : (s[m-1]+s[m])/2;
+}
+
+export function normalizeResponse(data){
+  // Accept various shapes from common backends (Ultralytics, custom, etc.)
+  // Goal: return { detections:[{class, class_id, confidence, poly:[x1,y1,...,x4,y4]}], meta:{image_width, image_height} }
+  const out = { detections: [], meta: null };
+
+  // Try detect meta
+  const iw = data?.image_width || data?.meta?.image_width || data?.meta?.width || data?.width;
+  const ih = data?.image_height || data?.meta?.image_height || data?.meta?.height || data?.height;
+  if(iw && ih) out.meta = { image_width: iw, image_height: ih };
+
+  // Common lists
+  const items = data?.detections || data?.boxes || data?.objects || data?.results || data || [];
+  const arr = Array.isArray(items) ? items : [];
+
+  for(const r of arr){
+    const cls = r.class ?? r.name ?? r.label ?? r.cls ?? "obj";
+    const clsId = r.class_id ?? r.classId ?? r.id ?? r.cls_id ?? null;
+    const conf = r.confidence ?? r.conf ?? r.score ?? r.prob ?? 0;
+
+    // various polygon forms
+    let poly = null;
+    if(Array.isArray(r.poly) && r.poly.length===8) poly = r.poly;
+    else if(Array.isArray(r.polygon) && r.polygon.length===8) poly = r.polygon;
+    else if(Array.isArray(r.xyxyxyxy) && r.xyxyxyxy.length===8) poly = r.xyxyxyxy;
+    else if(Array.isArray(r.points) && r.points.length===8) poly = r.points;
+
+    // obb param form -> polygon
+    if(!poly && r.obb && typeof r.obb === 'object'){
+      const { x, y, w, h, angle } = r.obb;
+      if([x,y,w,h,angle].every(v => typeof v === 'number')){
+        poly = obbToPolygon(x,y,w,h,angle);
+      }
+    }
+
+    // axis-aligned fallback
+    if(!poly && r.box && typeof r.box === 'object'){
+      const { x1, y1, x2, y2 } = r.box;
+      if([x1,y1,x2,y2].every(v => typeof v === 'number')){
+        poly = [x1,y1, x2,y1, x2,y2, x1,y2];
+      }
+    }
+
+    if(poly && poly.length===8){
+      out.detections.push({ class: cls, class_id: clsId, confidence: conf, poly });
+    }
+  }
+  return out;
+}
+
+function obbToPolygon(cx, cy, w, h, angleRad){
+  const hx=w/2, hy=h/2;
+  const pts=[[-hx,-hy],[hx,-hy],[hx,hy],[-hx,hy]];
+  const c=Math.cos(angleRad), s=Math.sin(angleRad);
+  const out=[];
+  for(const [px,py] of pts){
+    const rx = px*c - py*s;
+    const ry = px*s + py*c;
+    out.push(cx+rx, cy+ry);
+  }
+  return out;
 }

@@ -20,7 +20,6 @@ from .tasks import run_large_detection
 
 
 # ---------- helpers ----------
-
 def _write_labels_txt(detections: List[Dict[str, Any]]) -> bytes:
     """
     Plain-text artifact. One line per detection:
@@ -62,7 +61,6 @@ def _image_dims(image_path: str) -> Tuple[int, int]:
 
 
 # ---------- API views ----------
-
 class BasicDetectView(APIView):
     """
     Synchronous detection. Expects multipart form-data with fields:
@@ -73,15 +71,25 @@ class BasicDetectView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
-        # Validate confidence (and optionally image if your serializer includes it)
-        req = DetectRequestSerializer(data=request.data)
-        req.is_valid(raise_exception=True)
-        confidence = float(req.validated_data.get("confidence", 0.25))
-
-        # get uploaded file
-        if "image" not in request.FILES:
+        # Handle both frontend field names: "file" and "image"
+        confidence = 0.25
+        if "conf" in request.data:
+            try:
+                confidence = float(request.data["conf"])
+            except (ValueError, TypeError):
+                confidence = 0.25
+        
+        # Accept both "file" (frontend) and "image" (backend) field names
+        image_file = None
+        if "file" in request.FILES:
+            image_file = request.FILES["file"]
+        elif "image" in request.FILES:
+            image_file = request.FILES["image"]
+        
+        if not image_file:
             return Response({"detail": "image file is required"}, status=400)
-        image = request.FILES["image"]
+        
+        image = image_file
 
         # write to a temp file so Ultralytics can read it
         suffix = os.path.splitext(getattr(image, "name", ""))[-1] or ".jpg"
@@ -106,7 +114,6 @@ class BasicDetectView(APIView):
                 os.remove(tmp_path)
             except OSError:
                 pass
-
 
 class LargeDetectView(APIView):
     """

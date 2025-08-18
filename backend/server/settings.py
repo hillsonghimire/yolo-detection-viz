@@ -16,9 +16,14 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_celery_results",
     "rest_framework",
+    'drf_spectacular',
     "corsheaders",
     "detections",
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",

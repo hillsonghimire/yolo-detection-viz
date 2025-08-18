@@ -10,3 +10,6 @@ celery==5.4.0
 redis==5.0.7
 gunicorn==22.0.0
 django-celery-results==2.5.1
+#swagger
+drf-spectacular
+drf-spectacular-sidecar

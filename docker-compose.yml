@@ -1,0 +1,106 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: yoloapp
+      POSTGRES_USER: yolo
+      POSTGRES_PASSWORD: yolo_pass
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yolo -d yoloapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["python","manage.py","runserver","0.0.0.0:8000"]
+    environment:
+      RUN_MIGRATIONS: "1"                # <- only backend migrates
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: yolo
+      DB_PASSWORD: yolo_pass
+      DB_NAME: yoloapp
+      # Detection Model
+      MODEL_PATH: "/app/models/obb_best.pt"
+      DETECTION_TASK: "obb"
+      # CORS
+      CORS_ALLOW_ALL: "1"
+      # Celery/Redis
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "django-db"
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+      - media-data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    # healthcheck disabled to reduce startup time
+    # healthcheck:
+    #   test: ["CMD-SHELL", "python manage.py showmigrations --plan >/dev/null 2>&1 || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+
+  worker:
+    build: ./backend
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["celery", "-A", "server", "worker", "-l", "info"]
+    environment:
+      RUN_MIGRATIONS: "0"               # <- no migrations here
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key"
+      DB_NAME: yoloapp
+      DB_USER: yolo
+      DB_PASSWORD: yolo_pass
+      DB_HOST: db
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      MODEL_PATH: "/app/models/obb_best.pt"
+      DETECTION_TASK: "obb"
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+      - media-data:/app/media
+    depends_on:
+      backend:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: "http://localhost:8000"
+    command: sh -lc "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  db-data: {}
+  media-data: {}

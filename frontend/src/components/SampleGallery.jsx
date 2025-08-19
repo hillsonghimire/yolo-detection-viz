@@ -13,16 +13,20 @@ const samples = {
     "/samples/spikelet/spikelet4.JPG",
   ],
   fhb: [
-    "/samples/fhb/fhb.png",
-    "/samples/fhb/fhb2.png",
-    "/samples/fhb/fhb3.png",
-    "/samples/fhb/fhb4.png",
+    "/samples/fhb/fhb1.JPG",
+    "/samples/fhb/fhb8.JPG",
+    "/samples/fhb/fhb3.jpg",
+    "/samples/fhb/fhb4.jpg",
+    // "/samples/fhb/fhb5.jpg",
+    // "/samples/fhb/fhb6.JPG",
+    // "/samples/fhb/fhb2.jpg",
+    ,
   ],
   fdk: [
-    "/samples/fdk/fdk1.png",
-    "/samples/fdk/fdk2.png",
-    "/samples/fdk/fdk3.png",
-    "/samples/fdk/fdk4.png",
+    "/samples/fdk/fdk1.JPG",
+    "/samples/fdk/fdk2.JPG",
+    "/samples/fdk/fdk3.JPG",
+    "/samples/fdk/fdk4.JPG",
   ],
 };
 

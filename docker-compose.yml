@@ -34,7 +34,10 @@ services:
       DB_PASSWORD: yolo_pass
       DB_NAME: yoloapp
       # Detection Model
-      MODEL_PATH: "/app/models/obb_best.pt"
+      MODEL_SPIKE:    "/app/models/spike.pt"
+      MODEL_SPIKELET: "/app/models/spikelet.pt"
+      MODEL_FHB:      "/app/models/fhb.pt"
+      MODEL_FDK:      "/app/models/fdk.pt"
       DETECTION_TASK: "obb"
       # CORS
       CORS_ALLOW_ALL: "1"
@@ -43,7 +46,7 @@ services:
       CELERY_RESULT_BACKEND: "django-db"
     volumes:
       - ./backend:/app
-      - ./models:/app/models
+      # - ./models:/app/models
       - media-data:/app/media
     depends_on:
       db:
@@ -91,7 +94,8 @@ services:
   frontend:
     build: ./frontend
     environment:
-      VITE_API_URL: "http://backend:8000"
+      VITE_API_URL: "http://localhost:8000"
+      VITE_API_BASE: "http://localhost:8000"
     command: sh -lc "npm install && npm run dev -- --host 0.0.0.0"
     volumes:
       - ./frontend:/app

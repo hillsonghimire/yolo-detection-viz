@@ -37,12 +37,13 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy the rest of your backend project (Django app, manage.py, etc.)
 COPY . /app/
 
-# Normalize Windows line endings on the entrypoint and make it executable.
-# (This prevents "exec format error" and "^M" issues on Windows hosts.)
-RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Normalize entrypoint line endings inside image as well
+RUN if [ -f /app/entrypoint.sh ]; then sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh; fi
 
-# ---- Network -----------------------------------------------------------------
-EXPOSE 8000
+# # Allow switching behavior via SERVICE env (web|worker)
+# ENTRYPOINT ["/app/entrypoint.sh"]
+# # ---- Network -----------------------------------------------------------------
+# EXPOSE 8000
 
 # Note:
 # - We intentionally do NOT set ENTRYPOINT/CMD here because docker-compose.yml

@@ -12,11 +12,17 @@ const samples = {
     "/samples/spikelet/spikelet3.PNG",
     "/samples/spikelet/spikelet4.JPG",
   ],
-  third: [
-    "/samples/third/third-1.jpg",
-    "/samples/third/third-2.jpg",
-    "/samples/third/third-3.jpg",
-    "/samples/third/third-4.jpg",
+  fhb: [
+    "/samples/fhb/fhb.png",
+    "/samples/fhb/fhb2.png",
+    "/samples/fhb/fhb3.png",
+    "/samples/fhb/fhb4.png",
+  ],
+  fdk: [
+    "/samples/fdk/fdk1.png",
+    "/samples/fdk/fdk2.png",
+    "/samples/fdk/fdk3.png",
+    "/samples/fdk/fdk4.png",
   ],
 };
 

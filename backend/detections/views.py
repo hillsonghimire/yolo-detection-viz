@@ -1,4 +1,6 @@
+# detections/views.py  — FULL FILE REPLACEMENT
 import os
+import io
 import tempfile
 from typing import Dict, Any, List, Tuple
 
@@ -11,14 +13,16 @@ from PIL import Image
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
-from rest_framework.parsers import MultiPartParser, FormParser  # REQUIRED
+from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
 
 from .models import DetectionJob
 from .serializers import DetectionJobSerializer, DetectRequestSerializer
-from .inference import run_detection
 from .tasks import run_large_detection
+
+# 🔁 NEW: central inference import (bundled inside detections/)
+from .detect_models import run_inference
 
 
 # ---------- helpers ----------
@@ -30,13 +34,21 @@ def _write_labels_txt(detections: List[Dict[str, Any]]) -> bytes:
     """
     lines = []
     for d in detections:
-        cname = d.get("class_name", str(d.get("class_id", "?")))
+        cname = d.get("class_name") or d.get("class") or str(d.get("class_id", "?"))
         conf = float(d.get("confidence", 0.0))
-        if "bbox_xyxy" in d:  # axis-aligned
+        if "bbox_xyxy" in d:  # axis-aligned (legacy shape)
             x1, y1, x2, y2 = d["bbox_xyxy"]
             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}")
-        elif "bbox_xyxyxyxy" in d:  # OBB polygon
+        elif "bbox_xyxyxyxy" in d:  # OBB polygon (legacy shape)
             pts = d["bbox_xyxyxyxy"]
+            xs = pts[0::2]
+            ys = pts[1::2]
+            x1, x2 = int(min(xs)), int(max(xs))
+            y1, y2 = int(min(ys)), int(max(ys))
+            poly = ",".join(str(int(v)) for v in pts)
+            lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
+        elif "poly" in d:  # New normalized shape
+            pts = d["poly"]
             xs = pts[0::2]
             ys = pts[1::2]
             x1, x2 = int(min(xs)), int(max(xs))
@@ -65,141 +77,109 @@ def _image_dims(image_path: str) -> Tuple[int, int]:
 # ---------- API views ----------
 class BasicDetectView(APIView):
     """
-    Synchronous detection endpoint for real-time object detection.
+    Synchronous detection endpoint.
+    Accepts multipart/form-data with:
+      - image OR file: uploaded image
+      - model: "spike" | "spikelet" | "fhb" | "fdk"
+      - conf: float (low; the frontend filters client-side with the slider)
+    Returns JSON:
+      { image_width, image_height, detections: [{class, class_id, confidence, poly:[x1,y1,...,x4,y4]}] }
     """
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Perform synchronous object detection",
-        description="""
-        Upload an image and get immediate detection results.
-        Supports both axis-aligned bounding boxes and oriented bounding boxes (OBB).
-        """,
+        summary="Run detection with selected model (single request)",
+        description=(
+            "Upload an image once (low conf) and receive the full set of detections. "
+            "Your frontend then filters overlays live with a confidence slider (no extra backend calls)."
+        ),
         request={
-            'multipart/form-data': {
-                'type': 'object',
-                'properties': {
-                    'image': {
-                        'type': 'string',
-                        'format': 'binary',
-                        'description': 'Image file to analyze (JPG, PNG, JPEG supported)'
-                    },
-                    'confidence': {
-                        'type': 'number',
-                        'format': 'float',
-                        'minimum': 0.0,
-                        'maximum': 1.0,
-                        'default': 0.25,
-                        'description': 'Confidence threshold for detections (0.0-1.0)'
-                    }
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "image": {"type": "string", "format": "binary", "description": "Image file (preferred key)"},
+                    "file":  {"type": "string", "format": "binary", "description": "Alternate key for image"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk"], "default": "spike"},
+                    "conf":  {"type": "number", "default": 0.05, "description": "Server-side min confidence (keep low)"},
                 },
-                'required': ['image']
+                "required": ["image"]
             }
         },
         responses={
             200: OpenApiResponse(
                 response={
-                    'type': 'object',
-                    'properties': {
-                        'success': {'type': 'boolean', 'example': True},
-                        'detection_count': {'type': 'integer', 'example': 3},
-                        'detections': {
-                            'type': 'array',
-                            'items': {
-                                'type': 'object',
-                                'properties': {
-                                    'class_name': {'type': 'string', 'example': 'wheat_spike'},
-                                    'confidence': {'type': 'number', 'example': 0.95},
-                                    'bbox_xyxy': {
-                                        'type': 'array',
-                                        'items': {'type': 'number'},
-                                        'example': [100, 200, 300, 400]
-                                    },
-                                    'bbox_xyxyxyxy': {
-                                        'type': 'array',
-                                        'items': {'type': 'number'},
-                                        'example': [100, 200, 300, 200, 300, 400, 100, 400]
+                    "type": "object",
+                    "properties": {
+                        "image_width": {"type": "integer", "example": 1920},
+                        "image_height": {"type": "integer", "example": 1080},
+                        "detections": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "class": {"type": "string", "example": "0"},
+                                    "class_id": {"type": "integer", "nullable": True, "example": 0},
+                                    "confidence": {"type": "number", "example": 0.91},
+                                    "poly": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "example": [100,200, 300,200, 300,400, 100,400]
                                     }
                                 }
                             }
-                        },
-                        'image_width': {'type': 'integer', 'example': 1920},
-                        'image_height': {'type': 'integer', 'example': 1080}
+                        }
                     }
                 },
-                description='Detection results with bounding boxes and confidence scores'
+                description="Full detection set (OBB polygons if available)."
             ),
-            400: OpenApiResponse(description='Bad request - missing image or invalid parameters')
+            400: OpenApiResponse(description="Bad request (missing file or invalid params)"),
+            404: OpenApiResponse(description="Model weights not found"),
+            500: OpenApiResponse(description="Inference error"),
         },
         examples=[
             OpenApiExample(
-                'Successful detection',
-                summary='Example detection response',
+                "Response example",
                 value={
-                    'success': True,
-                    'detection_count': 2,
-                    'detections': [
-                        {
-                            'class_name': 'wheat_spike',
-                            'confidence': 0.95,
-                            'bbox_xyxy': [100, 200, 300, 400]
-                        },
-                        {
-                            'class_name': 'wheat_spike',
-                            'confidence': 0.87,
-                            'bbox_xyxy': [500, 600, 700, 800]
-                        }
+                    "image_width": 1024,
+                    "image_height": 768,
+                    "detections": [
+                        {"class": "0", "class_id": 0, "confidence": 0.88, "poly": [100,100, 200,100, 200,180, 100,180]},
+                        {"class": "0", "class_id": 0, "confidence": 0.32, "poly": [300,220, 380,210, 390,290, 310,300]},
                     ],
-                    'image_width': 1920,
-                    'image_height': 1080
-                }
+                },
             )
-        ]
+        ],
+        tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
-        # Handle both frontend field names: "file" and "image"
-        confidence = 0.25
-        if "conf" in request.data:
-            try:
-                confidence = float(request.data["conf"])
-            except (ValueError, TypeError):
-                confidence = 0.25
-        
-        # Accept both "file" (frontend) and "image" (backend) field names
-        image_file = None
-        if "file" in request.FILES:
-            image_file = request.FILES["file"]
-        elif "image" in request.FILES:
-            image_file = request.FILES["image"]
-        
-        if not image_file:
-            return Response({"detail": "image file is required"}, status=400)
-        
-        image = image_file
+        # Accept both "image" and "file"
+        up = request.FILES.get("image") or request.FILES.get("file")
+        if not up:
+            return Response({"detail": "No file uploaded (expected 'image' or 'file')."}, status=400)
 
-        # write to a temp file so Ultralytics can read it
-        suffix = os.path.splitext(getattr(image, "name", ""))[-1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            for chunk in image.chunks():
-                tmp.write(chunk)
-            tmp_path = tmp.name
+        model_name = (request.data.get("model") or "spike").strip()
+        try:
+            conf = float(request.data.get("conf", 0.05))
+        except (ValueError, TypeError):
+            conf = 0.05
+
+        # Open as PIL and run inference
+        try:
+            image = Image.open(io.BytesIO(up.read())).convert("RGB")
+        except Exception as e:
+            return Response({"detail": f"Invalid image: {e}"}, status=400)
 
         try:
-            # Your simplified OBB-only inference (returns detections, meta)
-            detections, meta = run_detection(tmp_path, confidence=confidence)
-            payload = {
-                "success": True,
-                "detection_count": len(detections),
-                "detections": detections,
-                "image_width": meta.get("image_width"),
-                "image_height": meta.get("image_height"),
-            }
-            return Response(payload, status=status.HTTP_200_OK)
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+            payload = run_inference(model_name, image, conf=conf)
+        except FileNotFoundError as e:
+            return Response({"detail": str(e)}, status=404)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
+        except Exception as e:
+            return Response({"detail": f"Inference error: {e}"}, status=500)
+
+        return Response(payload, status=200)
+
 
 class LargeDetectView(APIView):
     """
@@ -259,10 +239,11 @@ class LargeDetectView(APIView):
                     'message': 'Job submitted successfully'
                 }
             )
-        ]
+        ],
+        tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
-        # Reuse the same serializer; ensure it accepts both `confidence` and `image`
+        # Reuse your serializer for validation
         s = DetectRequestSerializer(data=request.data)
         s.is_valid(raise_exception=True)
 
@@ -325,7 +306,8 @@ class DownloadLabelsView(APIView):
                 description='Plain text file containing detection results'
             ),
             404: OpenApiResponse(description='File not found')
-        }
+        },
+        tags=["Detection"],
     )
     def get(self, request, fname: str):
         # secure: allow only .txt filenames (uuid.txt)

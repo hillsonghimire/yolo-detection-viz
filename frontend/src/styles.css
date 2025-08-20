@@ -36,6 +36,8 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px}
 .slider-v{writing-mode: bt-lr; -webkit-appearance: slider-vertical; width:18px; height:420px}
 
 .badge{background:#eef2ff;color:#3d4b6e;padding:4px 8px;border-radius:999px;border:1px solid #dfe5ff}
+/* in styles.css */
+.topbar .legend .badge { margin-left: 6px; }
 .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
 
 .gallery{margin-top:14px}

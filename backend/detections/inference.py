@@ -5,27 +5,25 @@ from PIL import Image
 import numpy as np
 from ultralytics import YOLO
 
-# Path to your OBB weights (must exist; no fallback)
-MODEL_PATH = os.environ.get("MODEL_PATH", "/app/models/obb_best.pt")
+# Use the centralized model loader and results normalization
+from .detect_models import load_model, results_to_response
 
-_model: YOLO | None = None
+# A simple in-memory cache for models
+_model_cache: Dict[str, YOLO] = {}
 
 
-def _get_model() -> YOLO:
-    """Lazy-load OBB model (no fallback, no extras)."""
-    global _model
-    if _model is not None:
-        return _model
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(
-            f"MODEL_PATH not found: {MODEL_PATH}. "
-            "Mount your OBB weights into the container at this path."
-        )
-    _model = YOLO(MODEL_PATH)
-    return _model
+def _get_model(model_name: str) -> YOLO:
+    """
+    Lazy-load and cache the model using the central registry.
+    """
+    if model_name not in _model_cache:
+        # load_model() handles file existence and model loading
+        _model_cache[model_name] = load_model(model_name)
+    return _model_cache[model_name]
 
 
 def _image_dims(path: str) -> Tuple[int, int]:
+    """Return (width,height) using PIL, falling back to (0,0) on error."""
     try:
         with Image.open(path) as im:
             return im.width, im.height
@@ -42,9 +40,9 @@ def _poly8(x) -> List[float]:
     return [float(v) for v in flat[:8]]
 
 
-def run_detection(image_path: str, confidence: float = 0.25) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def run_detection(image_path: str, confidence: float = 0.25, model_name: str = "spike") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    OBB-only detection.
+    Dynamically loads and runs detection with the specified model.
 
     Returns:
       detections: [
@@ -57,36 +55,27 @@ def run_detection(image_path: str, confidence: float = 0.25) -> Tuple[List[Dict[
       ]
       meta: {"image_width": int, "image_height": int}
     """
-    model = _get_model()
-    results = model.predict(source=image_path, conf=confidence, verbose=False, task="obb")
+    model = _get_model(model_name)
+    
+    # Run prediction and get results
+    results = model.predict(source=image_path, conf=confidence, verbose=False)
+    
+    # Use the shared results_to_response function to normalize the output
+    normalized_result = results_to_response(results[0])
+    
+    # Modify the output to match the expected format for the async task
+    detections = []
+    for d in normalized_result.get("detections", []):
+        detections.append({
+            "class": d["class"],
+            "class_id": d.get("class_id"),
+            "confidence": d["confidence"],
+            "polygon": d["poly"],
+        })
 
-    detections: List[Dict[str, Any]] = []
-    for r in results:
-        names = r.names  # id -> name
-        obb = getattr(r, "obb", None)
-        if obb is None:
-            continue
-
-        xyxyxyxy = getattr(obb, "xyxyxyxy", None)
-        cls = getattr(obb, "cls", None)
-        confs = getattr(obb, "conf", None)
-        if xyxyxyxy is None or cls is None or confs is None:
-            continue
-
-        n = int(len(cls))
-        for i in range(n):
-            poly = _poly8(xyxyxyxy[i])
-            cid = int(cls[i])
-            score = float(confs[i])
-            cname = names.get(cid, str(cid)) if isinstance(names, dict) else str(cid)
-
-            detections.append({
-                "class": cname,
-                "class_id": cid,
-                "confidence": score,
-                "polygon": [round(v, 2) for v in poly],
-            })
-
-    w, h = _image_dims(image_path)
-    meta = {"image_width": w, "image_height": h}
+    meta = {
+        "image_width": normalized_result.get("image_width", 0),
+        "image_height": normalized_result.get("image_height", 0)
+    }
+    
     return detections, meta

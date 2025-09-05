@@ -14,11 +14,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, OpenApiTypes
 
 from .models import DetectionJob
-from .serializers import DetectionJobSerializer, DetectRequestSerializer
+from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer
 from .tasks import run_large_detection
 
 # 🔁 NEW: central inference import (bundled inside detections/)
@@ -269,6 +268,89 @@ class LargeDetectView(APIView):
         return Response(
             {"unique_id": str(job.id), "success": True},
             status=status.HTTP_202_ACCEPTED,
+        )
+    
+
+class BulkDetectView(APIView):
+    """
+    Async (Celery) endpoint for bulk image processing.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Submit multiple images for async processing",
+        description="""
+        Submit multiple images at once for asynchronous processing.
+        Returns a list of job IDs, one for each image.
+        """,
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "images": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"}
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "default": 0.25,
+                        "description": "Confidence threshold for detections"
+                    },
+                    # Add this line to include the model field in Swagger UI
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk"], "default": "spike"},
+                },
+                "required": ["images", "model"] # Add 'model' to the required list
+            }
+        },
+        responses={
+            202: OpenApiResponse(
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'job_ids': {'type': 'array', 'items': {'type': 'string', 'format': 'uuid'}},
+                        'message': {'type': 'string', 'example': 'Bulk job submitted successfully'}
+                    }
+                },
+                description='Jobs successfully submitted for async processing'
+            ),
+            400: OpenApiResponse(description='Bad request - missing images or invalid parameters')
+        },
+        tags=["Detection"],
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = BulkDetectRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        images = request.FILES.getlist('images')
+        confidence = serializer.validated_data.get('confidence', 0.25)
+        model_name = serializer.validated_data.get('model', 'spike')
+
+        if not images:
+            return Response({"detail": "No images provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create a list to store job IDs
+        job_ids = []
+        
+        # Use a single transaction for creating all jobs
+        with transaction.atomic():
+            for image_file in images:
+                job = DetectionJob.objects.create(
+                    image=image_file,
+                    confidence=confidence,
+                    status="QUEUED",
+                    progress=0,
+                )
+                job_ids.append(str(job.id))
+        
+        # Dispatch tasks only AFTER the transaction has been committed
+        for job_id in job_ids:
+            # We must get the image path from the database to ensure it's persisted
+            job = DetectionJob.objects.get(id=job_id)
+            run_large_detection.delay(str(job.id), job.image.path, confidence, model_name)
+
+        return Response(
+            {"job_ids": job_ids, "message": "Bulk job submitted successfully"},
+            status=status.HTTP_202_ACCEPTED
         )
 
 

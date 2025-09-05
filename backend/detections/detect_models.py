@@ -19,7 +19,6 @@ MODEL_REGISTRY: Dict[str, str] = {
     "spikelet":  os.getenv("MODEL_SPIKELET",  _fallback("spikelet.pt")),
     "fhb":       os.getenv("MODEL_FHB",       _fallback("fhb.pt")),
     "fdk":       os.getenv("MODEL_FDK",       _fallback("fdk.pt")),
-    "third":     os.getenv("MODEL_THIRD",     _fallback("third.pt")),
 }
 
 @lru_cache(maxsize=None)

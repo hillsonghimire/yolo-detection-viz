@@ -1,4 +1,4 @@
-# detections/views.py  — FULL FILE REPLACEMENT
+# detections/views.py
 import os
 import io
 import tempfile
@@ -16,6 +16,8 @@ from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, OpenApiTypes
 
+from django.shortcuts import get_object_or_404
+
 from .models import DetectionJob
 from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer
 from .tasks import run_large_detection
@@ -25,36 +27,36 @@ from .detect_models import run_inference
 
 
 # ---------- helpers ----------
-def _write_labels_txt(detections: List[Dict[str, Any]]) -> bytes:
-    """
-    Plain-text artifact. One line per detection:
-    class_name\tconfidence\tx1,y1,x2,y2
-    (If OBB is present we emit polygon too as x1,y1,...,x4,y4 after the AABB.)
-    """
-    lines = []
-    for d in detections:
-        cname = d.get("class_name") or d.get("class") or str(d.get("class_id", "?"))
-        conf = float(d.get("confidence", 0.0))
-        if "bbox_xyxy" in d:  # axis-aligned (legacy shape)
-            x1, y1, x2, y2 = d["bbox_xyxy"]
-            lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}")
-        elif "bbox_xyxyxyxy" in d:  # OBB polygon (legacy shape)
-            pts = d["bbox_xyxyxyxy"]
-            xs = pts[0::2]
-            ys = pts[1::2]
-            x1, x2 = int(min(xs)), int(max(xs))
-            y1, y2 = int(min(ys)), int(max(ys))
-            poly = ",".join(str(int(v)) for v in pts)
-            lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
-        elif "poly" in d:  # New normalized shape
-            pts = d["poly"]
-            xs = pts[0::2]
-            ys = pts[1::2]
-            x1, x2 = int(min(xs)), int(max(xs))
-            y1, y2 = int(min(ys)), int(max(ys))
-            poly = ",".join(str(int(v)) for v in pts)
-            lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
-    return ("\n".join(lines) + "\n").encode("utf-8")
+# def _write_labels_txt(detections: List[Dict[str, Any]]) -> bytes:
+#     """
+#     Plain-text artifact. One line per detection:
+#     class_name\tconfidence\tx1,y1,x2,y2
+#     (If OBB is present we emit polygon too as x1,y1,...,x4,y4 after the AABB.)
+#     """
+#     lines = []
+#     for d in detections:
+#         cname = d.get("class_name") or d.get("class") or str(d.get("class_id", "?"))
+#         conf = float(d.get("confidence", 0.0))
+#         if "bbox_xyxy" in d:  # axis-aligned (legacy shape)
+#             x1, y1, x2, y2 = d["bbox_xyxy"]
+#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}")
+#         elif "bbox_xyxyxyxy" in d:  # OBB polygon (legacy shape)
+#             pts = d["bbox_xyxyxyxy"]
+#             xs = pts[0::2]
+#             ys = pts[1::2]
+#             x1, x2 = int(min(xs)), int(max(xs))
+#             y1, y2 = int(min(ys)), int(max(ys))
+#             poly = ",".join(str(int(v)) for v in pts)
+#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
+#         elif "poly" in d:  # New normalized shape
+#             pts = d["poly"]
+#             xs = pts[0::2]
+#             ys = pts[1::2]
+#             x1, x2 = int(min(xs)), int(max(xs))
+#             y1, y2 = int(min(ys)), int(max(ys))
+#             poly = ",".join(str(int(v)) for v in pts)
+#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
+#     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def _aabb_from_obb_polygon(pts: List[float]) -> Tuple[int, int, int, int]:
@@ -75,15 +77,7 @@ def _image_dims(image_path: str) -> Tuple[int, int]:
 
 # ---------- API views ----------
 class BasicDetectView(APIView):
-    """
-    Synchronous detection endpoint.
-    Accepts multipart/form-data with:
-      - image OR file: uploaded image
-      - model: "spike" | "spikelet" | "fhb" | "fdk"
-      - conf: float (low; the frontend filters client-side with the slider)
-    Returns JSON:
-      { image_width, image_height, detections: [{class, class_id, confidence, poly:[x1,y1,...,x4,y4]}] }
-    """
+    # ... (content of BasicDetectView remains unchanged)
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -151,7 +145,6 @@ class BasicDetectView(APIView):
         tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
-        # Accept both "image" and "file"
         up = request.FILES.get("image") or request.FILES.get("file")
         if not up:
             return Response({"detail": "No file uploaded (expected 'image' or 'file')."}, status=400)
@@ -162,7 +155,6 @@ class BasicDetectView(APIView):
         except (ValueError, TypeError):
             conf = 0.05
 
-        # Open as PIL and run inference
         try:
             image = Image.open(io.BytesIO(up.read())).convert("RGB")
         except Exception as e:
@@ -181,9 +173,7 @@ class BasicDetectView(APIView):
 
 
 class LargeDetectView(APIView):
-    """
-    Async (Celery) detection endpoint for processing large images or batch processing.
-    """
+    # ... (content of LargeDetectView remains unchanged)
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -242,7 +232,6 @@ class LargeDetectView(APIView):
         tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
-        # Reuse your serializer for validation
         s = DetectRequestSerializer(data=request.data)
         s.is_valid(raise_exception=True)
 
@@ -252,7 +241,6 @@ class LargeDetectView(APIView):
         image = request.FILES["image"]
         confidence = float(s.validated_data.get("confidence", 0.25))
 
-        # Persist the upload via the model so we have a stable path
         job = DetectionJob.objects.create(
             image=image,
             confidence=confidence,
@@ -260,21 +248,17 @@ class LargeDetectView(APIView):
             progress=0,
         )
 
-        # Use the stored file path (served by MEDIA_ROOT) for the worker
-        image_path = job.image.path  # should exist once saved
-        # Call Celery task with correct signature: (job_id, image_path, confidence)
+        image_path = job.image.path
         run_large_detection.delay(str(job.id), image_path, confidence)
 
         return Response(
             {"unique_id": str(job.id), "success": True},
             status=status.HTTP_202_ACCEPTED,
         )
-    
+
 
 class BulkDetectView(APIView):
-    """
-    Async (Celery) endpoint for bulk image processing.
-    """
+    # ... (content of BulkDetectView remains unchanged)
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -296,10 +280,9 @@ class BulkDetectView(APIView):
                         "default": 0.25,
                         "description": "Confidence threshold for detections"
                     },
-                    # Add this line to include the model field in Swagger UI
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "third"], "default": "spike"},
                 },
-                "required": ["images", "model"] # Add 'model' to the required list
+                "required": ["images", "model"]
             }
         },
         responses={
@@ -328,10 +311,7 @@ class BulkDetectView(APIView):
         if not images:
             return Response({"detail": "No images provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create a list to store job IDs
         job_ids = []
-        
-        # Use a single transaction for creating all jobs
         with transaction.atomic():
             for image_file in images:
                 job = DetectionJob.objects.create(
@@ -342,9 +322,7 @@ class BulkDetectView(APIView):
                 )
                 job_ids.append(str(job.id))
         
-        # Dispatch tasks only AFTER the transaction has been committed
         for job_id in job_ids:
-            # We must get the image path from the database to ensure it's persisted
             job = DetectionJob.objects.get(id=job_id)
             run_large_detection.delay(str(job.id), job.image.path, confidence, model_name)
 
@@ -360,12 +338,58 @@ class ListJobsView(generics.ListAPIView):
     queryset = DetectionJob.objects.all().order_by("-created_at")
 
 
+class DownloadAnnotatedImageView(APIView):
+    """
+    GET /download/image/<uuid>.jpg
+    Streams the annotated image from MEDIA_ROOT/annotated/
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(
+        summary="Download annotated image with bounding boxes",
+        description="""
+        Downloads the processed image with bounding boxes drawn on it.
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='fname',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description='Filename of the annotated image to download (must end with .jpg)'
+            )
+        ],
+        responses={
+            200: OpenApiResponse(
+                response={'type': 'string', 'format': 'binary'},
+                description='JPEG image with detection bounding boxes'
+            ),
+            404: OpenApiResponse(description='File not found')
+        },
+        tags=["Detection"],
+    )
+    def get(self, request, fname: str):
+        if not fname.endswith(".jpg"):
+            raise Http404()
+        
+        rel = f"annotated/{fname}"
+        path = (
+            default_storage.path(rel)
+            if hasattr(default_storage, "path")
+            else os.path.join(settings.MEDIA_ROOT, rel)
+        )
+        if not os.path.exists(path):
+            raise Http404()
+        
+        return FileResponse(open(path, "rb"), as_attachment=True, filename=fname, content_type="image/jpeg")
+
+
 class DownloadLabelsView(APIView):
     """
     GET /download/<uuid>.txt
     Streams the labels file from MEDIA_ROOT/labels/
     """
-    authentication_classes = []  # public like the reference site
+    authentication_classes = [] 
     permission_classes = []
 
     @extend_schema(
@@ -392,7 +416,6 @@ class DownloadLabelsView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
-        # secure: allow only .txt filenames (uuid.txt)
         if not fname.endswith(".txt"):
             raise Http404()
         rel = f"labels/{fname}"

@@ -1,8 +1,8 @@
-import json
+# detections/serializers.py
 from rest_framework import serializers
-from .models import DetectionJob
-from typing import Any # Import Any for type hinting
-
+from .models import DetectionJob, BulkDetectionJob
+from typing import Any
+import json
 
 class DetectionJobSerializer(serializers.ModelSerializer):
     detection_count = serializers.SerializerMethodField()
@@ -10,8 +10,7 @@ class DetectionJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetectionJob
         fields = ["id", "image", "status", "progress", "confidence", "result", "created_at", "labels_file", "annotated_image", "detection_count"]
-
-    # Method to get detection_count from the JSON result field
+    
     def get_detection_count(self, obj: Any) -> int:
         if obj.result:
             try:
@@ -20,17 +19,21 @@ class DetectionJobSerializer(serializers.ModelSerializer):
             except (json.JSONDecodeError, TypeError):
                 return 0
         return 0
-        
+
 class DetectRequestSerializer(serializers.Serializer):
     image = serializers.ImageField()
     confidence = serializers.FloatField(default=0.25, min_value=0.0, max_value=1.0)
-    model = serializers.CharField(required=True) # Add this line
+    model = serializers.CharField(required=True)
 
-# New serializer for bulk uploads
 class BulkDetectRequestSerializer(serializers.Serializer):
     images = serializers.ListField(
         child=serializers.ImageField(),
         min_length=1
     )
     confidence = serializers.FloatField(default=0.25, min_value=0.0, max_value=1.0)
-    model = serializers.CharField(required=True) # Add this line
+    model = serializers.CharField(required=True)
+    
+class BulkDetectionJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BulkDetectionJob
+        fields = ["id", "status", "created_at", "excel_file"]

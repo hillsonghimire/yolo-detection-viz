@@ -43,7 +43,8 @@ services:
       CORS_ALLOW_ALL: "1"
       # Celery/Redis
       CELERY_BROKER_URL: "redis://redis:6379/0"
-      CELERY_RESULT_BACKEND: "django-db"
+      # Use Redis for result backend as well to support chords/callbacks
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
     volumes:
       - ./backend:/app
       # - ./models:/app/models

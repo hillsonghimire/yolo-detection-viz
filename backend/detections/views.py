@@ -8,76 +8,39 @@ from django.db import transaction
 from django.conf import settings
 from django.http import FileResponse, Http404
 from django.core.files.storage import default_storage
+from django.shortcuts import get_object_or_404
 
 from PIL import Image
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, generics
+from rest_framework import status, generics, serializers
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, OpenApiTypes
 
-from django.shortcuts import get_object_or_404
+from celery import chord, group
 
-from .models import DetectionJob
-from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer
-from .tasks import run_large_detection
-
-# 🔁 NEW: central inference import (bundled inside detections/)
+from .models import DetectionJob, BulkDetectionJob
+from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer
+from .tasks import run_large_detection, generate_excel_report
 from .detect_models import run_inference
 
 
 # ---------- helpers ----------
-# def _write_labels_txt(detections: List[Dict[str, Any]]) -> bytes:
-#     """
-#     Plain-text artifact. One line per detection:
-#     class_name\tconfidence\tx1,y1,x2,y2
-#     (If OBB is present we emit polygon too as x1,y1,...,x4,y4 after the AABB.)
-#     """
-#     lines = []
-#     for d in detections:
-#         cname = d.get("class_name") or d.get("class") or str(d.get("class_id", "?"))
-#         conf = float(d.get("confidence", 0.0))
-#         if "bbox_xyxy" in d:  # axis-aligned (legacy shape)
-#             x1, y1, x2, y2 = d["bbox_xyxy"]
-#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}")
-#         elif "bbox_xyxyxyxy" in d:  # OBB polygon (legacy shape)
-#             pts = d["bbox_xyxyxyxy"]
-#             xs = pts[0::2]
-#             ys = pts[1::2]
-#             x1, x2 = int(min(xs)), int(max(xs))
-#             y1, y2 = int(min(ys)), int(max(ys))
-#             poly = ",".join(str(int(v)) for v in pts)
-#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
-#         elif "poly" in d:  # New normalized shape
-#             pts = d["poly"]
-#             xs = pts[0::2]
-#             ys = pts[1::2]
-#             x1, x2 = int(min(xs)), int(max(xs))
-#             y1, y2 = int(min(ys)), int(max(ys))
-#             poly = ",".join(str(int(v)) for v in pts)
-#             lines.append(f"{cname}\t{conf:.6f}\t{x1},{y1},{x2},{y2}\t{poly}")
-#     return ("\n".join(lines) + "\n").encode("utf-8")
-
-
 def _aabb_from_obb_polygon(pts: List[float]) -> Tuple[int, int, int, int]:
-    """Given 8 numbers [x1,y1,x2,y2,x3,y3,x4,y4], return axis-aligned (x1,y1,x2,y2) ints."""
     xs = pts[0::2]
     ys = pts[1::2]
     return int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
 
 
 def _image_dims(image_path: str) -> Tuple[int, int]:
-    """Return (width,height) using PIL, falling back to (0,0) on error."""
     try:
         with Image.open(image_path) as im:
             return im.width, im.height
     except Exception:
         return 0, 0
 
-
-# ---------- API views ----------
 class BasicDetectView(APIView):
-    # ... (content of BasicDetectView remains unchanged)
+    # ... (rest of BasicDetectView is unchanged)
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -171,9 +134,8 @@ class BasicDetectView(APIView):
 
         return Response(payload, status=200)
 
-
 class LargeDetectView(APIView):
-    # ... (content of LargeDetectView remains unchanged)
+    # ... (content of LargeDetectView is unchanged)
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -240,6 +202,7 @@ class LargeDetectView(APIView):
 
         image = request.FILES["image"]
         confidence = float(s.validated_data.get("confidence", 0.25))
+        model_name = s.validated_data.get("model", "spike")
 
         job = DetectionJob.objects.create(
             image=image,
@@ -249,13 +212,13 @@ class LargeDetectView(APIView):
         )
 
         image_path = job.image.path
-        run_large_detection.delay(str(job.id), image_path, confidence)
+        # Pass model_name to task to match signature
+        run_large_detection.delay(str(job.id), image_path, confidence, model_name)
 
         return Response(
             {"unique_id": str(job.id), "success": True},
             status=status.HTTP_202_ACCEPTED,
         )
-
 
 class BulkDetectView(APIView):
     # ... (content of BulkDetectView remains unchanged)
@@ -311,7 +274,9 @@ class BulkDetectView(APIView):
         if not images:
             return Response({"detail": "No images provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        job_ids = []
+        bulk_job = BulkDetectionJob.objects.create(status="PENDING")
+        
+        tasks = []
         with transaction.atomic():
             for image_file in images:
                 job = DetectionJob.objects.create(
@@ -320,29 +285,34 @@ class BulkDetectView(APIView):
                     status="QUEUED",
                     progress=0,
                 )
-                job_ids.append(str(job.id))
-        
-        for job_id in job_ids:
-            job = DetectionJob.objects.get(id=job_id)
-            run_large_detection.delay(str(job.id), job.image.path, confidence, model_name)
+                bulk_job.jobs.add(job)
+                tasks.append(run_large_detection.s(str(job.id), job.image.path, confidence, model_name))
+
+        # Mark bulk job as processing while individual jobs run
+        bulk_job.status = "PROCESSING"
+        bulk_job.save(update_fields=["status"])
+
+        # Use immutable signature so Celery does not prepend header results
+        callback = generate_excel_report.si(str(bulk_job.id))
+        chord(group(tasks), callback).apply_async()
 
         return Response(
-            {"job_ids": job_ids, "message": "Bulk job submitted successfully"},
+            {"bulk_job_id": str(bulk_job.id), "message": "Bulk job submitted successfully"},
             status=status.HTTP_202_ACCEPTED
         )
 
+class BulkJobsView(generics.ListAPIView):
+    """List all bulk detection jobs."""
+    serializer_class = BulkDetectionJobSerializer
+    queryset = BulkDetectionJob.objects.all().order_by("-created_at")
 
 class ListJobsView(generics.ListAPIView):
-    """List all detection jobs with filtering and pagination support."""
+    """List all individual detection jobs with filtering and pagination support."""
     serializer_class = DetectionJobSerializer
     queryset = DetectionJob.objects.all().order_by("-created_at")
 
-
 class DownloadAnnotatedImageView(APIView):
-    """
-    GET /download/image/<uuid>.jpg
-    Streams the annotated image from MEDIA_ROOT/annotated/
-    """
+    # ... (content of DownloadAnnotatedImageView is unchanged)
     authentication_classes = []
     permission_classes = []
 
@@ -383,12 +353,8 @@ class DownloadAnnotatedImageView(APIView):
         
         return FileResponse(open(path, "rb"), as_attachment=True, filename=fname, content_type="image/jpeg")
 
-
 class DownloadLabelsView(APIView):
-    """
-    GET /download/<uuid>.txt
-    Streams the labels file from MEDIA_ROOT/labels/
-    """
+        # ... (content of DownloadLabelsView is unchanged)
     authentication_classes = [] 
     permission_classes = []
 
@@ -427,3 +393,50 @@ class DownloadLabelsView(APIView):
         if not os.path.exists(path):
             raise Http404()
         return FileResponse(open(path, "rb"), as_attachment=True, filename=fname, content_type="text/plain")
+    
+class DownloadExcelView(APIView):
+    """
+    GET /download/excel/<uuid>_report.xlsx
+    Streams the generated Excel file.
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(
+        summary="Download bulk processing Excel report",
+        description="""
+        Downloads the Excel file containing the aggregated detection counts for a bulk job.
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='fname',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description='Filename of the Excel file to download (e.g., <uuid>_report.xlsx)'
+            )
+        ],
+        responses={
+            200: OpenApiResponse(
+                response={'type': 'string', 'format': 'binary'},
+                description='Excel file containing detection statistics'
+            ),
+            404: OpenApiResponse(description='File not found')
+        },
+        tags=["Detection"],
+    )
+    def get(self, request, fname: str):
+        if not fname.endswith(".xlsx"):
+            raise Http404("Invalid file extension.")
+        
+        rel_path = f"reports/{fname}"
+        abs_path = os.path.join(settings.MEDIA_ROOT, rel_path)
+        
+        if not os.path.exists(abs_path):
+            raise Http404("File not found.")
+        
+        return FileResponse(
+            open(abs_path, "rb"),
+            as_attachment=True,
+            filename=fname,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )

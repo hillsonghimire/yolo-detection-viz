@@ -4,10 +4,12 @@ from __future__ import annotations
 import os
 import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from celery import shared_task
 from django.db import transaction
+from django.db.models import F
 from django.conf import settings
 from typing import List, Dict, Any, Tuple
 from PIL import Image
@@ -121,9 +123,10 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
     return rel_path
 
 @shared_task(bind=True)
-def run_large_detection(self, job_id: str, image_path: str, confidence: float, model_name: str) -> None:
+def run_large_detection(self, job_id: str, image_path: str, confidence: float, model_name: str) -> str:
     """
     Celery task: run OBB detection and update the job record.
+    Returns the job_id on success for the chord to continue.
     """
     try:
         with transaction.atomic():
@@ -157,6 +160,8 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
             job.progress = 100
             job.save(update_fields=["result", "labels_file", "annotated_image", "status", "progress"])
 
+        return job_id
+
     except Exception as e:
         with transaction.atomic():
             try:
@@ -167,4 +172,129 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
                 job.save(update_fields=["status", "progress", "result"])
             except Exception:
                 pass
+        raise
+
+def _count_from_labels_txt(abs_labels_path: str) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    try:
+        with open(abs_labels_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if not parts:
+                    continue
+                # Expect: class_id x1 y1 x2 y2 x3 y3 x4 y4 conf  => len 10
+                try:
+                    class_id = int(float(parts[0]))
+                except ValueError:
+                    continue
+                col = f"Class_{class_id}"
+                counts[col] = counts.get(col, 0) + 1
+    except FileNotFoundError:
+        return {}
+    return counts
+
+
+@shared_task
+def generate_excel_report(*args, **kwargs) -> None:
+    """
+    Chord callback to build Excel report.
+    Accepts any calling convention:
+    - immutable signature: (bulk_job_id,)
+    - standard chord: (header_results, bulk_job_id)
+    - kwargs: bulk_job_id=<uuid>
+    """
+    # Extract bulk_job_id robustly
+    bulk_job_id: str | None = kwargs.get("bulk_job_id")
+    header_results: Any | None = None
+
+    if bulk_job_id is None:
+        if len(args) == 1:
+            # Likely immutable signature: only bulk_job_id
+            bulk_job_id = args[0]
+        elif len(args) >= 2:
+            # Standard chord: results, bulk_job_id
+            header_results = args[0]
+            bulk_job_id = args[1]
+
+    if isinstance(bulk_job_id, (list, tuple)) and header_results is None:
+        # Mis-ordered: first arg is results list, second missing; try to fix
+        header_results = bulk_job_id
+        bulk_job_id = args[1] if len(args) > 1 else None
+
+    if not bulk_job_id:
+        print("Error: bulk_job_id missing in generate_excel_report")
+        raise ValueError("bulk_job_id missing for report generation")
+
+    try:
+        from .models import BulkDetectionJob
+
+        bulk_job = BulkDetectionJob.objects.get(id=bulk_job_id)
+        jobs = bulk_job.jobs.all()
+
+        rows: List[Dict[str, Any]] = []
+        all_class_cols: set[str] = set()
+
+        for job in jobs:
+            file_name = os.path.basename(job.image.name) if job.image else str(job.id)
+
+            # Prefer fast parsing of pre-generated labels file
+            detection_counts: Dict[str, int] = {}
+            if job.labels_file:
+                abs_labels_path = os.path.join(settings.MEDIA_ROOT, job.labels_file)
+                detection_counts = _count_from_labels_txt(abs_labels_path)
+
+            # Fallback to result JSON if labels file missing or empty
+            if not detection_counts and job.result:
+                try:
+                    result_data = json.loads(job.result)
+                except (TypeError, json.JSONDecodeError):
+                    result_data = job.result if isinstance(job.result, dict) else {}
+                for det in result_data.get("detections", []) or []:
+                    cid = det.get("class_id")
+                    if cid is None:
+                        # fallback to 'class' if present
+                        try:
+                            cid = int(det.get("class"))
+                        except Exception:
+                            continue
+                    col = f"Class_{cid}"
+                    detection_counts[col] = detection_counts.get(col, 0) + 1
+
+            # Accumulate
+            all_class_cols.update(detection_counts.keys())
+            rows.append({"file_name": file_name, **detection_counts})
+
+        # Build DataFrame with consistent columns
+        columns = ["file_name"] + sorted(all_class_cols)
+        df = pd.DataFrame(rows, columns=columns).fillna(0)
+
+        # Avoid printing massive frames
+        if not df.empty and len(df) <= 100:
+            print("--- Excel Report Data Preview (Top 5 Entries) ---")
+            print(df.head())
+            print("--------------------------------------------------")
+        else:
+            print(f"Skipping DataFrame print: DataFrame has {len(df)} rows.")
+
+        fname = f"{bulk_job_id}_report.xlsx"
+        rel_path = os.path.join("reports", fname)
+        abs_dir = os.path.join(settings.MEDIA_ROOT, "reports")
+        os.makedirs(abs_dir, exist_ok=True)
+        abs_path = os.path.join(abs_dir, fname)
+
+        df.to_excel(abs_path, index=False)
+
+        bulk_job.excel_file = rel_path
+        bulk_job.status = "DONE"
+        bulk_job.save(update_fields=["excel_file", "status"])
+        print(f"Excel report saved: {abs_path}")
+
+    except Exception as e:
+        print(f"Error generating Excel report for bulk job {bulk_job_id}: {e}")
+        try:
+            bulk_job = BulkDetectionJob.objects.get(id=bulk_job_id)
+            bulk_job.status = "FAILED"
+            bulk_job.save(update_fields=["status"])
+        except BulkDetectionJob.DoesNotExist:
+            print(f"BulkDetectionJob with ID {bulk_job_id} does not exist.")
         raise

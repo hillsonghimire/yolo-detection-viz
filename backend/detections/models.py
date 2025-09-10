@@ -21,3 +21,19 @@ class DetectionJob(models.Model):
 
     def __str__(self):
         return f"{self.id} - {self.status}"
+
+class BulkDetectionJob(models.Model):
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("PROCESSING", "Processing"),
+        ("DONE", "Done"),
+        ("FAILED", "Failed"),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    jobs = models.ManyToManyField(DetectionJob, related_name='bulk_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    excel_file = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Bulk Job {self.id} - {self.status}"

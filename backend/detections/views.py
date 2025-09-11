@@ -352,7 +352,10 @@ class DownloadAnnotatedImageView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
-        if not fname.endswith(".jpg"):
+        # accept uppercase/lowercase extensions
+        import os
+        ext = os.path.splitext(fname)[1].lower()
+        if ext not in (".jpg", ".jpeg"):
             raise Http404()
         
         rel = f"annotated/{fname}"
@@ -395,7 +398,8 @@ class DownloadLabelsView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
-        if not fname.endswith(".txt"):
+        # accept uppercase/lowercase extensions
+        if not fname.lower().endswith(".txt"):
             raise Http404()
         rel = f"labels/{fname}"
         path = (
@@ -438,7 +442,7 @@ class DownloadExcelView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
-        if not fname.endswith(".xlsx"):
+        if not fname.lower().endswith(".xlsx"):
             raise Http404("Invalid file extension.")
         
         rel_path = f"reports/{fname}"

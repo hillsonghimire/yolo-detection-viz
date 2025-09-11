@@ -62,7 +62,16 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
 // ---- Bulk processing APIs ----
 export async function submitBulk({ files, model, confidence = 0.25 }) {
   const fd = new FormData();
-  for (const f of files || []) fd.append("images", f);
+  const valid = [];
+  for (const f of files || []) {
+    if (f && typeof f.size === 'number' && f.size > 0 && (!f.type || f.type.startsWith('image/'))) {
+      valid.push(f);
+      fd.append("images", f, f.name || 'upload.jpg');
+    }
+  }
+  if (valid.length === 0) {
+    throw new Error("No valid images to upload (must be non-empty image files)");
+  }
   fd.append("model", model);
   fd.append("confidence", String(confidence));
   const res = await fetch(`${BASE}/api/detect/bulk/`, {
@@ -70,8 +79,22 @@ export async function submitBulk({ files, model, confidence = 0.25 }) {
     body: fd,
   });
   if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new Error(`Bulk submit failed: HTTP ${res.status} ${msg}`);
+    let detail = "";
+    try {
+      const data = await res.json();
+      if (data && typeof data === 'object') {
+        if (data.detail) detail = String(data.detail);
+        else if (data.images) {
+          // Flatten field errors from DRF
+          const firstKey = Object.keys(data.images)[0];
+          const errs = Array.isArray(data.images[firstKey]) ? data.images[firstKey].join('; ') : String(data.images[firstKey]);
+          detail = `images: ${errs}`;
+        } else detail = JSON.stringify(data);
+      }
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw new Error(`Bulk submit failed: HTTP ${res.status}${detail ? ' - ' + detail : ''}`);
   }
   return res.json(); // { bulk_job_id }
 }
@@ -79,13 +102,21 @@ export async function submitBulk({ files, model, confidence = 0.25 }) {
 export async function listBulkJobs() {
   const res = await fetch(`${BASE}/api/bulk_jobs/`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json(); // array of BulkDetectionJob
+  const data = await res.json();
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
 }
 
 export async function listJobs() {
   const res = await fetch(`${BASE}/api/jobs/`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json(); // array of DetectionJob
+  const data = await res.json();
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
 }
 
 export function downloadUrl(kind, fname) {

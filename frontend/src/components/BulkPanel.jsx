@@ -13,20 +13,43 @@ export default function BulkPanel({ model, onExit }) {
 
   const onPick = (fileList) => {
     const arr = Array.from(fileList || []);
-    // de-dup by name+size
+    // validate and de-dup by name+size
     const sig = new Set(files.map(f => `${f.name}|${f.size}`));
     const merged = [...files];
+    let skipped = 0;
     for (const f of arr) {
+      if (!f || !('size' in f) || f.size <= 0 || (f.type && !f.type.startsWith('image/'))) { skipped++; continue; }
       const k = `${f.name}|${f.size}`;
       if (!sig.has(k)) { merged.push(f); sig.add(k); }
     }
+    if (skipped) setMessage(`${skipped} file(s) skipped (empty or not an image).`);
     setFiles(merged);
   };
 
   const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
   const onDragEnter = (e) => { prevent(e); setDrag(true); };
   const onDragLeave = (e) => { prevent(e); setDrag(false); };
-  const onDrop = (e) => { prevent(e); setDrag(false); if (e.dataTransfer?.files) onPick(e.dataTransfer.files); };
+  const onDrop = async (e) => {
+    prevent(e); setDrag(false);
+    const dt = e.dataTransfer;
+    if (dt?.files && dt.files.length) { onPick(dt.files); return; }
+    const uriList = dt?.getData('text/uri-list') || dt?.getData('text/plain');
+    if (uriList) {
+      const urls = uriList.split(/\r?\n/).filter(Boolean);
+      const fetched = [];
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url);
+          const blob = await resp.blob();
+          if (blob.size > 0 && (!blob.type || blob.type.startsWith('image/'))) {
+            const name = url.split('/').pop() || 'image.jpg';
+            fetched.push(new File([blob], name, { type: blob.type || 'image/jpeg' }));
+          }
+        } catch {}
+      }
+      if (fetched.length) onPick(fetched);
+    }
+  };
 
   const refresh = async () => {
     try {
@@ -49,7 +72,7 @@ export default function BulkPanel({ model, onExit }) {
   }, []);
 
   const onSubmit = async () => {
-    if (!files.length) return;
+    if (!files.length) { setMessage('Please add one or more image files.'); return; }
     setSubmitting(true);
     setMessage("");
     try {
@@ -68,9 +91,12 @@ export default function BulkPanel({ model, onExit }) {
 
   return (
     <div className="card" style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>Bulk Processing</h3>
-        <button className="btn" type="button" onClick={onExit}>Exit</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" type="button" onClick={() => inputRef.current?.click()} disabled={submitting} title="Select image files to upload">Select Files</button>
+          <button className="btn" type="button" onClick={onExit}>Exit</button>
+        </div>
       </div>
 
       <div className={"panel" + (drag ? " dragover" : "")}
@@ -79,9 +105,9 @@ export default function BulkPanel({ model, onExit }) {
       >
         <div className="drop-hint"></div>
         <div style={{ textAlign: "center", padding: 20, width: "100%" }}>
-          <p style={{ marginTop: 0, color: "#3d4b6e" }}>Drop images here or select files</p>
+          <p style={{ marginTop: 0, color: 'var(--fg)' }}>Drop images here or select files</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-            <button className="btn ghost" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Choose Files</button>
+            <button className="btn" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Choose Files</button>
             <button className="btn" type="button" onClick={onSubmit} disabled={!files.length || submitting}>
               {submitting ? "Submitting..." : `Submit Job (${files.length})`}
             </button>
@@ -103,7 +129,7 @@ export default function BulkPanel({ model, onExit }) {
           <div className="small" style={{ marginBottom: 6 }}>{files.length} files selected</div>
           <div style={{ maxHeight: 160, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 8, background: "#fff" }}>
             {files.map((f, i) => (
-              <div key={i} className="small" style={{ color: "#334155" }}>{f.name}</div>
+              <div key={i} className="small" style={{ color: 'var(--fg)' }}>{f.name}</div>
             ))}
           </div>
         </div>
@@ -117,7 +143,7 @@ export default function BulkPanel({ model, onExit }) {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", color: "#334155" }}>
+              <tr style={{ textAlign: "left", color: 'var(--fg)' }}>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>ID</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Status</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Created</th>
@@ -129,7 +155,7 @@ export default function BulkPanel({ model, onExit }) {
                 const idShort = String(b.id).slice(0, 8);
                 const excelName = (b.excel_file || "").split("/").pop();
                 return (
-                  <tr key={b.id} className="small" style={{ color: "#334155" }}>
+                  <tr key={b.id} className="small" style={{ color: 'var(--fg)' }}>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{idShort}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{b.status}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{new Date(b.created_at).toLocaleString()}</td>
@@ -137,7 +163,7 @@ export default function BulkPanel({ model, onExit }) {
                       {excelName ? (
                         <a className="btn" style={{ padding: "6px 10px" }} href={downloadUrl('excel', excelName)}>Excel</a>
                       ) : (
-                        <span className="small" style={{ color: "#64748b" }}>Pending</span>
+                        <span className="small" style={{ color: 'var(--muted)' }}>Pending</span>
                       )}
                     </td>
                   </tr>
@@ -157,7 +183,7 @@ export default function BulkPanel({ model, onExit }) {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", color: "#334155" }}>
+              <tr style={{ textAlign: "left", color: 'var(--fg)' }}>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Image</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Status</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Progress</th>
@@ -172,16 +198,16 @@ export default function BulkPanel({ model, onExit }) {
                 const labName = (j.labels_file || "").split("/").pop();
                 const annName = (j.annotated_image || "").split("/").pop();
                 return (
-                  <tr key={j.id} className="small" style={{ color: "#334155" }}>
+                  <tr key={j.id} className="small" style={{ color: 'var(--fg)' }}>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{imgName || j.id}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.status}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.progress ?? 0}%</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.detection_count ?? 0}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {labName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('labels', labName)}>Labels</a> : <span className="small" style={{ color: "#64748b" }}>-</span>}
+                      {labName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('labels', labName)}>Labels</a> : <span className="small" style={{ color: 'var(--muted)' }}>-</span>}
                     </td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {annName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('image', annName)}>Image</a> : <span className="small" style={{ color: "#64748b" }}>-</span>}
+                      {annName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('image', annName)}>Image</a> : <span className="small" style={{ color: 'var(--muted)' }}>-</span>}
                     </td>
                   </tr>
                 );

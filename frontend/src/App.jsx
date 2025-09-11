@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ModelSelector from "./components/ModelSelector.jsx";
 import UploadPanel from "./components/UploadPanel.jsx";
 import DetectPanel from "./components/DetectPanel.jsx";
@@ -9,6 +9,14 @@ import { detectOnce } from "./lib/api.js";
 import "./styles.css";
 
 export default function App() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "light" || saved === "dark") return saved;
+    } catch {}
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return prefersDark ? "dark" : "light";
+  });
   const [model, setModel] = useState("spike");
   const [file, setFile] = useState(null);
   const [imageURL, setImageURL] = useState("");
@@ -22,6 +30,10 @@ export default function App() {
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
   const urlRef = useRef(null);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('theme', theme); } catch {}
+  }, [theme]);
 
   // ——— helpers to keep class colors consistent with DetectPanel ———
   const hash = (s) => {
@@ -119,6 +131,11 @@ export default function App() {
       <div className="header">
         <h1>Wheat Detection System</h1>
         <a href="#" className="small">Detailed Operation Guide</a>
+        <div className="theme-toggle">
+          <button className="theme-btn" type="button" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">
+            {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
+          </button>
+        </div>
       </div>
       <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p>
 

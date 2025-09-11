@@ -72,12 +72,18 @@ export default function DetectPanel({
 
     const img = new Image();
     img.onload = () => {
-      ctx.drawImage(img, 0, 0, dispW, dispH);
-
+      // Letterboxed draw preserving aspect ratio
       const srcW = meta?.image_width || img.naturalWidth;
       const srcH = meta?.image_height || img.naturalHeight;
-      const sx = dispW / srcW;
-      const sy = dispH / srcH;
+      const scale = Math.min(dispW / srcW, dispH / srcH);
+      const drawW = Math.round(srcW * scale);
+      const drawH = Math.round(srcH * scale);
+      const offX = Math.round((dispW - drawW) / 2);
+      const offY = Math.round((dispH - drawH) / 2);
+      // background
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0,0,dispW,dispH);
+      ctx.drawImage(img, offX, offY, drawW, drawH);
 
       ctx.lineWidth = lineWidth;
       const fontSize = 12;
@@ -96,10 +102,10 @@ export default function DetectPanel({
         const col = colorOf(key);
 
         const pts = [
-          [p[0] * sx, p[1] * sy],
-          [p[2] * sx, p[3] * sy],
-          [p[4] * sx, p[5] * sy],
-          [p[6] * sx, p[7] * sy],
+          [p[0] * scale + offX, p[1] * scale + offY],
+          [p[2] * scale + offX, p[3] * scale + offY],
+          [p[4] * scale + offX, p[5] * scale + offY],
+          [p[6] * scale + offX, p[7] * scale + offY],
         ];
 
         ctx.beginPath();

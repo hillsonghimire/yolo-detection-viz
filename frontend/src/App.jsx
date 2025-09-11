@@ -164,10 +164,10 @@ export default function App() {
         </div>
       </div>
 
-      <div className="grid">
-        <div className="cards">
-          <div className="card">
-            <h3>Upload Image</h3>
+      <div className="card detect-card">
+        <div className="detect-inner">
+          <div className="panel-col">
+            <div className="minor-label">Upload Image</div>
             <UploadPanel
               onFile={setNewFile}
               imageURL={imageURL}
@@ -177,8 +177,8 @@ export default function App() {
               setDisp={setDisp}
             />
           </div>
-          <div className="card">
-            <h3>Detection Result</h3>
+          <div className="panel-col">
+            <div className="minor-label">Detection Result</div>
             <DetectPanel
               imageURL={imageURL}
               detections={filtered}
@@ -187,7 +187,8 @@ export default function App() {
             />
           </div>
         </div>
-        <div className="slider-col card">
+
+        <div className="detect-controls">
           <ConfidenceRail value={conf} onChange={setConf} />
         </div>
       </div>

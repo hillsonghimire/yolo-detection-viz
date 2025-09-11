@@ -1,7 +1,15 @@
-:root { --bg:#f7f8fc; --card:#fff; --muted:#5c6b88; --fg:#1c2640; --acc:#6c5ce7; --line:#e7eaf3; }
+:root {
+  --bg:#f7f8fc;
+  --card:#ffffff;
+  --muted:#5c6b88;
+  --fg:#1c2640;
+  --acc:#6c5ce7;
+  --acc-600:#5a4ed4;
+  --line:#e7eaf3;
+}
 *{box-sizing:border-box}
 html,body,#root{height:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial; -webkit-font-smoothing:antialiased}
 
 .container{max-width:1200px;margin:0 auto;padding:20px}
 h1{margin:0 0 6px 0}
@@ -14,26 +22,57 @@ h1{margin:0 0 6px 0}
 .select{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
-.grid{display:grid;grid-template-columns: 1fr auto; gap:16px}
-.cards{display:grid;grid-template-columns: 1fr 1fr; gap:16px; align-items:start}
+.detect-card{padding:16px}
+.detect-inner{display:grid; grid-template-columns: 360px 360px; gap:16px; align-items:start; justify-content:center; margin: 0 auto}
 
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 6px 24px rgba(0,0,0,0.06)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 10px 30px rgba(26, 32, 61, 0.06)}
 .card h3{margin:0 0 10px 0;color:#3d4b6e}
 
-.panel{position:relative;border:1px dashed #cfd6ea;border-radius:12px;padding:6px;display:flex;justify-content:center;align-items:center;min-height:220px;background:#fbfcff}
+.panel{position:relative;border:none;border-radius:8px;padding:0;display:flex;justify-content:center;align-items:center;min-height:220px;background:transparent;overflow:hidden}
 .panel.dragover .drop-hint{display:block}
 .drop-hint{position:absolute;inset:8px;border:2px dashed #b4c1ee;border-radius:12px;display:none}
 
-.canvas-wrap{position:relative;width:100%;display:flex;justify-content:center;align-items:center}
+.canvas-wrap{position:relative;display:inline-block}
 canvas{display:block;max-width:100%;height:auto;border-radius:10px}
 
-.btn{background:var(--acc);color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
-.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;transition:all .15s ease}
+.btn:hover{background:var(--acc-600); box-shadow:0 8px 20px rgba(92, 92, 231, 0.25)}
+.btn:focus-visible{outline:2px solid #b5b2ff; outline-offset:2px}
+.btn:disabled{opacity:.55;cursor:not-allowed; box-shadow:none}
 .small{color:var(--muted);font-size:12px}
 
-.slider-col{grid-row:1 / span 2; display:flex; align-items:center}
-.slider-rail{display:flex;align-items:center;justify-content:center;height:100%;padding:12px}
-.slider-v{writing-mode: bt-lr; -webkit-appearance: slider-vertical; width:18px; height:420px}
+.panel-col{width:360px}
+
+/* Bottom horizontal control row */
+.detect-controls{ margin-top:12px; padding:10px 12px; background:#f9faff; border:1px solid var(--line); border-radius:12px; width:736px; margin-left:auto; margin-right:auto }
+
+/* Horizontal slider UI */
+.hslider{ display:flex; align-items:center; gap:12px; width:100% }
+.hslider-label{ font-size:13px; color: var(--muted); font-weight:600; min-width:max(90px, 18%) }
+.hslider-input{ flex:1 1 auto; height:28px; -webkit-appearance:none; appearance:none; background:transparent; outline:none }
+.hslider-value{ font-weight:700; color:#334155; background:#eef2ff; border:1px solid #dfe5ff; padding:4px 8px; border-radius:999px; min-width:52px; text-align:center }
+
+/* WebKit/Blink */
+.modern-hslider::-webkit-slider-runnable-track{
+  height:8px; border-radius:999px; border:1px solid var(--line);
+  background: linear-gradient(90deg, var(--acc) 0 var(--pct), #e6e9f6 var(--pct) 100%);
+}
+.modern-hslider::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none; width:18px; height:18px; margin-top:-5px;
+  background:#fff; border:2px solid var(--acc); border-radius:999px; box-shadow:0 4px 14px rgba(92,92,231,.25);
+}
+.modern-hslider:active::-webkit-slider-thumb{ transform:scale(1.05) }
+.modern-hslider:focus-visible{ outline:2px solid #b5b2ff; outline-offset:2px }
+
+/* Firefox */
+.modern-hslider{ background:transparent }
+.modern-hslider::-moz-range-track{ height:8px; background:#e6e9f6; border-radius:999px; border:1px solid var(--line) }
+.modern-hslider::-moz-range-progress{ height:8px; background:var(--acc); border-radius:999px }
+.modern-hslider::-moz-range-thumb{ width:18px; height:18px; background:#fff; border:2px solid var(--acc); border-radius:999px; box-shadow:0 4px 14px rgba(92,92,231,.25) }
+.modern-hslider:focus-visible{ outline:2px solid #b5b2ff; outline-offset:2px }
+
+/* card panels have consistent width to match canvases */
+.detect-card .panel-col{ width:360px }
 
 .badge{background:#eef2ff;color:#3d4b6e;padding:4px 8px;border-radius:999px;border:1px solid #dfe5ff}
 /* in styles.css */
@@ -45,3 +84,46 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px}
 .thumbs{display:grid;grid-template-columns: repeat(4, 1fr); gap:10px}
 .thumb{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:grab}
 .thumb img{display:block;width:100%;height:100%;object-fit:cover}
+
+
+/* Overlay UI on upload panel */
+.overlay-controls{
+  position:absolute; left:12px; right:12px; bottom:12px;
+  display:flex; gap:8px; align-items:center; justify-content:space-between;
+  background: rgba(28,38,64,0.6); color:#fff;
+  border:1px solid rgba(231,234,243,0.3);
+  border-radius:12px; padding:8px 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+  backdrop-filter: blur(3px) saturate(1.1);
+}
+.btn.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.6)}
+.btn.ghost:hover{background:rgba(255,255,255,0.08)}
+
+.tip{position:absolute; top:10px; right:10px}
+.tip-badge{
+  width:22px; height:22px; border-radius:999px; border:1px solid rgba(28,38,64,0.25);
+  background:#ffffffcc; color:#1c2640; font-weight:700; line-height:1; cursor:help;
+  display:flex; align-items:center; justify-content:center;
+}
+.tip-content{
+  position:absolute; top:28px; right:0; white-space:nowrap;
+  background:#1c2640; color:#fff; font-size:12px; padding:6px 8px; border-radius:8px;
+  border:1px solid #2e3b60; box-shadow:0 8px 20px rgba(0,0,0,0.18);
+  opacity:0; transform:translateY(-4px); pointer-events:none; transition:all .15s ease;
+}
+.tip:hover .tip-content, .tip:focus-within .tip-content{opacity:1; transform:translateY(0);}
+
+/* (removed toggle styles) */
+
+/* unify inner panels when placed inside the single detect card */
+.detect-card .panel{
+  border:none;
+  background:transparent;
+  padding:0;
+  border-radius:0;
+}
+.detect-card .panel .drop-hint{inset:0; border-radius:8px}
+.detect-card .panel-col{width:360px}
+.detect-card h3{margin:0 0 8px 0}
+.detect-card .panel-col{ background:transparent !important; border:0 !important; box-shadow:none !important; }
+.minor-label{ font-size:13px; color: var(--muted); font-weight:600; margin-bottom:6px }

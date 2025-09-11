@@ -82,8 +82,8 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px}
 .gallery{margin-top:14px}
 .gallery h4{margin:0 0 8px 0;color:#3d4b6e}
 .thumbs{display:grid;grid-template-columns: repeat(4, 1fr); gap:10px}
-.thumb{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:grab}
-.thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.thumb{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:grab;height:120px;display:flex;align-items:center;justify-content:center}
+.thumb img{display:block;width:100%;height:100%;object-fit:contain;background:#fff}
 
 
 /* Overlay UI on upload panel */

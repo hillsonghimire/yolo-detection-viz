@@ -58,3 +58,41 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
   }
   return res.json();
 }
+
+// ---- Bulk processing APIs ----
+export async function submitBulk({ files, model, confidence = 0.25 }) {
+  const fd = new FormData();
+  for (const f of files || []) fd.append("images", f);
+  fd.append("model", model);
+  fd.append("confidence", String(confidence));
+  const res = await fetch(`${BASE}/api/detect/bulk/`, {
+    method: "POST",
+    body: fd,
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => "");
+    throw new Error(`Bulk submit failed: HTTP ${res.status} ${msg}`);
+  }
+  return res.json(); // { bulk_job_id }
+}
+
+export async function listBulkJobs() {
+  const res = await fetch(`${BASE}/api/bulk_jobs/`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json(); // array of BulkDetectionJob
+}
+
+export async function listJobs() {
+  const res = await fetch(`${BASE}/api/jobs/`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json(); // array of DetectionJob
+}
+
+export function downloadUrl(kind, fname) {
+  // kind: 'excel' | 'labels' | 'image'
+  const base = `${BASE}/api`;
+  if (kind === 'excel') return `${base}/download/excel/${fname}`;
+  if (kind === 'labels') return `${base}/download/${fname}`;
+  if (kind === 'image') return `${base}/download/image/${fname}`;
+  throw new Error("unknown download kind");
+}

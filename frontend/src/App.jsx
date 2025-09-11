@@ -4,6 +4,7 @@ import UploadPanel from "./components/UploadPanel.jsx";
 import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
+import BulkPanel from "./components/BulkPanel.jsx";
 import { detectOnce } from "./lib/api.js";
 import "./styles.css";
 
@@ -16,6 +17,7 @@ export default function App() {
   const [meta, setMeta] = useState(null);
   const [conf, setConf] = useState(0.3);
   const [msg, setMsg] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -75,6 +77,7 @@ export default function App() {
     setRaw([]);
     setMeta(null);
     setMsg("");
+    setBulkMode(false);
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     urlRef.current = f ? URL.createObjectURL(f) : null;
     setImageURL(urlRef.current || "");
@@ -121,6 +124,11 @@ export default function App() {
 
       <div className="topbar">
         <ModelSelector model={model} setModel={setModel} />
+        <div className="controls">
+          <button className="btn" type="button" onClick={() => setBulkMode((v) => !v)}>
+            {bulkMode ? "Single Image Mode" : "Bulk Processing"}
+          </button>
+        </div>
         <div className="legend">
           {/* overall counts still available if you want */}
           <span className="badge" title="shown / total">
@@ -164,6 +172,7 @@ export default function App() {
         </div>
       </div>
 
+      {!bulkMode && (
       <div className="card detect-card">
         <div className="detect-inner">
           <div className="panel-col">
@@ -193,10 +202,17 @@ export default function App() {
           <ConfidenceRail value={conf} onChange={setConf} />
         </div>
       </div>
+      )}
 
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
-      <SampleGallery model={model} onPick={onPickSample} />
+      {!bulkMode && (
+        <SampleGallery model={model} onPick={onPickSample} />
+      )}
+
+      {bulkMode && (
+        <BulkPanel model={model} onExit={() => setBulkMode(false)} />
+      )}
     </div>
   );
 }

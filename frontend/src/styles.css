@@ -96,6 +96,15 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px}
   box-shadow: 0 6px 20px rgba(0,0,0,0.15);
   backdrop-filter: blur(3px) saturate(1.1);
 }
+.legend-toggle{
+  position:absolute; /* top/right set inline based on legend height */
+  background: rgba(255,255,255,0.9);
+  color:#334155;
+  border:1px solid rgba(0,0,0,0.15);
+  border-radius:8px;
+  padding:6px 8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+}
 .btn.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.6)}
 .btn.ghost:hover{background:rgba(255,255,255,0.08)}
 

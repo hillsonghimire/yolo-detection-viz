@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Right panel (detection). Uses the SAME disp width/height as UploadPanel.
@@ -11,10 +11,11 @@ export default function DetectPanel({
   meta,
   disp,
   imageName,
-  showLabels = true,
   lineWidth = 2,
 }) {
   const canvasRef = useRef(null);
+  const [showLabels, setShowLabels] = useState(true);
+  const [legendRect, setLegendRect] = useState({ x: 0, y: 10, w: 0, h: 0 });
 
   // derive a sensible base name for downloads
   const imgNameBase = (() => {
@@ -281,6 +282,10 @@ export default function DetectPanel({
           ctx.fillText(it.name, x0 + pad + swatch + 8, y + (lineH - fontSize) / 2);
           y += lineH;
         }
+
+        // publish legend rectangle for DOM overlay positioning
+        const next = { x: x0, y: y0, w, h };
+        setLegendRect((prev) => (prev.x !== next.x || prev.y !== next.y || prev.w !== next.w || prev.h !== next.h ? next : prev));
       }
     };
     img.src = imageURL;
@@ -291,6 +296,21 @@ export default function DetectPanel({
       <div className="canvas-wrap">
         <canvas ref={canvasRef} />
       </div>
+      {imageURL && (
+        <div
+          className="legend-toggle"
+          style={{ right: 10, top: (legendRect.y + legendRect.h + 8) }}
+        >
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={showLabels}
+              onChange={(e) => setShowLabels(e.target.checked)}
+            />
+            <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>Labels</span>
+          </label>
+        </div>
+      )}
       {imageURL && (
         <div className="overlay-controls">
           <button className="btn ghost" type="button" onClick={downloadLabelsTxt} disabled={!(detections && detections.length)}>

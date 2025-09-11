@@ -184,6 +184,7 @@ export default function App() {
               detections={filtered}
               meta={meta}
               disp={disp}
+              imageName={file?.name || null}
             />
           </div>
         </div>

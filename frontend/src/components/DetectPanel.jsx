@@ -10,10 +10,100 @@ export default function DetectPanel({
   detections,
   meta,
   disp,
+  imageName,
   showLabels = true,
   lineWidth = 2,
 }) {
   const canvasRef = useRef(null);
+
+  // derive a sensible base name for downloads
+  const imgNameBase = (() => {
+    if (imageName && typeof imageName === "string") {
+      return imageName.replace(/\.[^.]+$/, "") || "image";
+    }
+    try {
+      if (imageURL) {
+        const u = new URL(imageURL, window.location.href);
+        const stem = (u.pathname.split("/").pop() || "image").replace(/\.[^.]+$/, "");
+        return stem || "image";
+      }
+    } catch {}
+    return "image";
+  })();
+
+  const getSourceDims = async () => {
+    if (meta?.image_width && meta?.image_height) {
+      return { w: meta.image_width, h: meta.image_height };
+    }
+    const probe = new Image();
+    const dims = await new Promise((resolve) => {
+      probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
+      probe.onerror = () => resolve({ w: disp?.width || 0, h: disp?.height || 0 });
+      probe.src = imageURL;
+    });
+    return dims;
+  };
+
+  const downloadPredImage = async () => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const name = `${imgNameBase}_pred.png`;
+    if (cvs.toBlob) {
+      cvs.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      });
+    } else {
+      const url = cvs.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  };
+
+  const downloadLabelsTxt = async () => {
+    if (!detections || !detections.length) return;
+    const { w: srcW, h: srcH } = await getSourceDims();
+    const lines = (detections || []).map((d) => {
+      const p = d.poly || d.polygon || d.xyxyxyxy || d.points || [];
+      if (!Array.isArray(p) || p.length !== 8) return null;
+      let cls = d.class_id;
+      if (cls == null) cls = d.class;
+      if (typeof cls === "string") {
+        const n = parseInt(cls, 10);
+        cls = Number.isFinite(n) ? n : 0;
+      }
+      if (!Number.isFinite(cls)) cls = 0;
+      const nx = (x) => (srcW ? x / srcW : x);
+      const ny = (y) => (srcH ? y / srcH : y);
+      const coords = [
+        nx(p[0]), ny(p[1]),
+        nx(p[2]), ny(p[3]),
+        nx(p[4]), ny(p[5]),
+        nx(p[6]), ny(p[7]),
+      ].map((v) => (Number.isFinite(v) ? v.toFixed(6) : "0.000000"));
+      return [cls, ...coords].join(" ");
+    }).filter(Boolean);
+
+    const content = lines.join("\n") + (lines.length ? "\n" : "");
+    const blob = new Blob([content], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${imgNameBase}_labels.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
 
   // Build list of classes present and a color map (stable across renders)
   const { classList, colorOf } = useMemo(() => {
@@ -201,6 +291,16 @@ export default function DetectPanel({
       <div className="canvas-wrap">
         <canvas ref={canvasRef} />
       </div>
+      {imageURL && (
+        <div className="overlay-controls">
+          <button className="btn ghost" type="button" onClick={downloadLabelsTxt} disabled={!(detections && detections.length)}>
+            Download Labels
+          </button>
+          <button className="btn ghost" type="button" onClick={downloadPredImage}>
+            Download Image
+          </button>
+        </div>
+      )}
     </div>
   );
 }

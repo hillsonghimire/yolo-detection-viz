@@ -172,7 +172,8 @@ export default function DetectPanel({
       const offX = Math.round((dispW - drawW) / 2);
       const offY = Math.round((dispH - drawH) / 2);
       // background
-      ctx.fillStyle = "#000";
+      const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#f3f4f6';
+      ctx.fillStyle = cssBg;
       ctx.fillRect(0,0,dispW,dispH);
       ctx.drawImage(img, offX, offY, drawW, drawH);
 
@@ -296,16 +297,23 @@ export default function DetectPanel({
       <div className="canvas-wrap">
         <canvas ref={canvasRef} />
       </div>
+      {!imageURL && (
+        <div className="empty-hint" aria-live="polite">Load an image to see detections</div>
+      )}
+      {imageURL && (!detections || detections.length === 0) && (
+        <div className="empty-hint" aria-live="polite">No detections above threshold</div>
+      )}
       {imageURL && (
         <div
           className="legend-toggle"
           style={{ right: 10, top: (legendRect.y + legendRect.h + 8) }}
         >
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }} title="Toggle labels on boxes">
             <input
               type="checkbox"
               checked={showLabels}
               onChange={(e) => setShowLabels(e.target.checked)}
+              aria-label="Toggle labels"
             />
             <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>Labels</span>
           </label>
@@ -313,10 +321,10 @@ export default function DetectPanel({
       )}
       {imageURL && (
         <div className="overlay-controls">
-          <button className="btn ghost" type="button" onClick={downloadLabelsTxt} disabled={!(detections && detections.length)}>
+          <button className="btn ghost" type="button" onClick={downloadLabelsTxt} disabled={!(detections && detections.length)} title="Download YOLO polygon labels (.txt)" aria-disabled={!(detections && detections.length)}>
             Download Labels
           </button>
-          <button className="btn ghost" type="button" onClick={downloadPredImage}>
+          <button className="btn ghost" type="button" onClick={downloadPredImage} title="Download annotated image (.png)">
             Download Image
           </button>
         </div>

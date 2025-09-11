@@ -7,15 +7,20 @@ import { useEffect, useRef, useState } from "react";
 export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDisp }){
   const [drag, setDrag] = useState(false);
   const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [vw, setVw] = useState(typeof window !== 'undefined' ? window.innerWidth : 0);
 
   useEffect(()=>{
     const cvs = canvasRef.current;
     if(!cvs) return;
 
-    const targetW = 360; // fixed display width for all images
-    const targetH = 640; // fixed display height for all images
+    const wrap = wrapRef.current;
+    const targetW = Math.max(240, Math.floor((wrap?.clientWidth || 360)));
+    const targetH = Math.floor(targetW * (640/360)); // keep 9:16 portrait ratio
     const dpr = window.devicePixelRatio || 1;
+
+    const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#f3f4f6';
 
     if(!imageURL){
       cvs.width = Math.round(targetW * dpr);
@@ -26,7 +31,7 @@ export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDi
       ctx.setTransform(dpr,0,0,dpr,0,0);
       ctx.clearRect(0,0,targetW,targetH);
       // neutral background when no image
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = cssBg;
       ctx.fillRect(0,0,targetW,targetH);
       setDisp({ width: targetW, height: targetH, dpr });
       return;
@@ -51,14 +56,21 @@ export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDi
       const dx = Math.round((targetW - dw) / 2);
       const dy = Math.round((targetH - dh) / 2);
       // background bars
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = cssBg;
       ctx.fillRect(0,0,targetW,targetH);
       ctx.drawImage(img, dx, dy, dw, dh);
 
       setDisp({ width: targetW, height: targetH, dpr });
     };
     img.src = imageURL;
-  }, [imageURL]);
+  }, [imageURL, vw]);
+
+  // track viewport width to trigger re-measure on resize
+  useEffect(() => {
+    const onR = () => setVw(window.innerWidth || 0);
+    window.addEventListener('resize', onR);
+    return () => window.removeEventListener('resize', onR);
+  }, []);
 
   const handleSelect = (f)=> onFile(f || null);
 
@@ -82,8 +94,11 @@ export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDi
     <div className={"panel"+(drag?" dragover":"")}
       onDragEnter={onDragEnter} onDragOver={prevent} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div className="drop-hint"></div>
-      <div style={{width:"100%", display:"flex",justifyContent:"center"}}>
-        <canvas ref={canvasRef}/>
+      <div ref={wrapRef} style={{width:"100%", display:"flex",justifyContent:"center", position:'relative'}}>
+        {!imageURL && (
+          <div className="empty-hint">Drop image here or click Select</div>
+        )}
+        <canvas ref={canvasRef} onDoubleClick={()=> fileInputRef.current?.click()} />
       </div>
 
       {/* Overlayed controls at the bottom of the image */}
@@ -95,16 +110,34 @@ export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDi
           onChange={(e)=> handleSelect(e.target.files?.[0]||null)}
           style={{ display: "none" }}
         />
-        <button
-          className="btn ghost"
-          type="button"
-          onClick={()=> fileInputRef.current?.click()}
-          disabled={busy}
-        >
-          Choose File
-        </button>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={()=> fileInputRef.current?.click()}
+            disabled={busy}
+            title="Select an image file"
+          >
+            Select Image
+          </button>
+          {imageURL && (
+            <button
+              className="btn ghost"
+              type="button"
+              onClick={()=> onFile(null)}
+              disabled={busy}
+              title="Clear current image"
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <button className="btn" onClick={onRun} disabled={busy || !imageURL}>
-          {busy ? "Processing…" : "Start Processing"}
+          {busy ? (
+            <span style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+              <span className="spinner" aria-hidden /> Processing…
+            </span>
+          ) : "Start Processing"}
         </button>
       </div>
 
@@ -113,6 +146,15 @@ export default function UploadPanel({ onFile, imageURL, onRun, busy, disp, setDi
         <button className="tip-badge" aria-label="Tip about uploading">i</button>
         <div className="tip-content">Drag a sample image into this panel.</div>
       </div>
+
+      {busy && (
+        <div className="busy-overlay" aria-live="polite" aria-busy="true">
+          <div className="busy-box">
+            <span className="spinner" aria-hidden />
+            <span>Processing image…</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

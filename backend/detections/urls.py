@@ -9,6 +9,7 @@ from .views import (
     DownloadLabelsView, 
     DownloadAnnotatedImageView,
     DownloadExcelView,
+    HealthView,
 )
 
 urlpatterns = [
@@ -23,4 +24,5 @@ urlpatterns = [
     path("download/<str:fname>", DownloadLabelsView.as_view(), name="download-labels"),
     path("download/image/<str:fname>", DownloadAnnotatedImageView.as_view(), name="download-image"),
     path("download/excel/<str:fname>", DownloadExcelView.as_view(), name="download-excel"), # Point to the new view
+    path("health/", HealthView.as_view(), name="health"),
 ]

@@ -134,6 +134,19 @@ class BasicDetectView(APIView):
 
         return Response(payload, status=200)
 
+class HealthView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(
+        summary="Health check",
+        description="Lightweight GET to verify the API is reachable.",
+        responses={200: OpenApiResponse(description="OK")},
+        tags=["System"],
+    )
+    def get(self, request, *args, **kwargs):
+        return Response({"status": "ok"}, status=200)
+
 class LargeDetectView(APIView):
     # ... (content of LargeDetectView is unchanged)
     parser_classes = [MultiPartParser, FormParser]

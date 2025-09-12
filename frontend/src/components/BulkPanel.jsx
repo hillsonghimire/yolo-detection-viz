@@ -94,8 +94,8 @@ export default function BulkPanel({ model, onExit }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>Bulk Processing</h3>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" type="button" onClick={() => inputRef.current?.click()} disabled={submitting} title="Select image files to upload">Select Files</button>
-          <button className="btn" type="button" onClick={onExit}>Exit</button>
+          {/* <button className="btn" type="button" onClick={() => inputRef.current?.click()} disabled={submitting} title="Select image files to upload">Select Files</button> */}
+          {/* <button className="btn" type="button" onClick={onExit}>Exit</button> */}
         </div>
       </div>
 
@@ -204,10 +204,31 @@ export default function BulkPanel({ model, onExit }) {
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.progress ?? 0}%</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.detection_count ?? 0}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {labName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('labels', labName)}>Labels</a> : <span className="small" style={{ color: 'var(--muted)' }}>-</span>}
+                      {labName ? (
+                        <a className="icon-btn" href={downloadUrl('labels', labName)} title="Download labels (.txt)" aria-label="Download labels">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <path d="M14 2v6h6"></path>
+                            <path d="M16 13H8"></path>
+                            <path d="M16 17H8"></path>
+                          </svg>
+                        </a>
+                      ) : (
+                        <span className="small" style={{ color: 'var(--muted)' }}>-</span>
+                      )}
                     </td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {annName ? <a className="btn ghost" style={{ padding: "6px 10px" }} href={downloadUrl('image', annName)}>Image</a> : <span className="small" style={{ color: 'var(--muted)' }}>-</span>}
+                      {annName ? (
+                        <a className="icon-btn" href={downloadUrl('image', annName)} title="Download annotated image (.png)" aria-label="Download annotated image">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
+                          </svg>
+                        </a>
+                      ) : (
+                        <span className="small" style={{ color: 'var(--muted)' }}>-</span>
+                      )}
                     </td>
                   </tr>
                 );

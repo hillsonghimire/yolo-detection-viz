@@ -350,13 +350,13 @@ export default function DetectPanel({
               </button>
             </div>
             <label className="legend-check" title="Toggle labels on boxes">
+              <span>Toggle Labels</span>
               <input
                 type="checkbox"
                 checked={showLabels}
                 onChange={(e) => setShowLabels(e.target.checked)}
                 aria-label="Toggle labels"
               />
-              <span>Labels</span>
             </label>
           </div>
         </div>

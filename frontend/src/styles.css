@@ -224,7 +224,8 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px; background: 
 [data-theme="dark"] .legend-name{ color:#e2e8f0 }
 .legend-count{ font-size:12px; color:#334155; background:#eef2ff; border:1px solid #dfe5ff; border-radius:999px; padding:2px 6px; margin-left:8px; white-space:nowrap }
 [data-theme="dark"] .legend-count{ color:#e2e8f0; background:#1e293b; border-color:#334155 }
-.legend-meta{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px }
+.legend-meta{ display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; padding-top:8px; border-top:1px solid rgba(0,0,0,0.12) }
+[data-theme="dark"] .legend-meta{ border-color:#1e293b }
 .legend-badge{ font-size:12px; color:#334155; background:#eef2ff; border:1px solid #dfe5ff; border-radius:999px; padding:3px 8px }
 [data-theme="dark"] .legend-badge{ color:#e2e8f0; background:#1e293b; border-color:#334155 }
 
@@ -233,9 +234,10 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px; background: 
   padding-top:8px;
   border-top:1px solid rgba(0,0,0,0.12);
   display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
+  flex-direction: column;
+  align-items:flex-start;
+  justify-content:flex-start;
+  gap:8px;
 }
 [data-theme="dark"] .legend-footer{ border-color:#1e293b }
 

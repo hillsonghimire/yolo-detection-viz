@@ -23,9 +23,9 @@ const samples = {
     "/samples/spikelet/spikelet7.png",
     // "/samples/spikelet/spikelet8.JPG",
     "/samples/spikelet/spikelet9.jpg",
-    "/samples/spikelet/spikelet10.png",
-    "/samples/spikelet/spikelet11.png",
-    "/samples/spikelet/spikelet12.png",
+    // "/samples/spikelet/spikelet10.png",
+    // "/samples/spikelet/spikelet11.png",
+    // "/samples/spikelet/spikelet12.png",
   ],
   fhb: [
     "/samples/fhb/fhb1.JPG",
@@ -35,9 +35,9 @@ const samples = {
     "/samples/fhb/fhb5.jpg",
     "/samples/fhb/fhb6.JPG",
     "/samples/fhb/fhb2.jpg",
-    "/samples/fhb/fhb7.JPG",
-    "/samples/fhb/fhb8.JPG",
-    "/samples/fhb/fhb9.JPG",
+    // "/samples/fhb/fhb7.JPG",
+    // "/samples/fhb/fhb8.JPG",
+    // "/samples/fhb/fhb9.JPG",
     "/samples/fhb/fhb10.JPG",
     // "/samples/fhb/fhb11.JPG",
     // "/samples/fhb/fhb12.JPG",
@@ -76,9 +76,7 @@ export default function SampleGallery({ model, onPick }){
           </div>
         ))}
       </div>
-      <div className="small" style={{marginTop:6}}>
-        Click to load, or drag onto the left panel.
-      </div>
+      {/* Helper text removed to allow thumbnails to use space */}
     </div>
   );
 }

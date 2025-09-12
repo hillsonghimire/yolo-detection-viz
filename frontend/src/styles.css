@@ -286,3 +286,6 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px; background: 
 .input-gallery .thumb{ cursor:pointer; transition: transform .12s ease, box-shadow .12s ease }
 .input-gallery .thumb:hover{ transform: translateY(-2px) }
 .input-gallery .thumb:hover img{ box-shadow:0 8px 20px rgba(0,0,0,0.12) }
+/* Make sample strip taller and remove extra spacing */
+.input-gallery .thumbs{ padding: 0; margin: 0 }
+.input-gallery .thumb{ height: 150px }

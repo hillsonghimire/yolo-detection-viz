@@ -163,14 +163,16 @@ export default function DetectPanel({
 
     const img = new Image();
     img.onload = () => {
-      // Letterboxed draw preserving aspect ratio
-      const srcW = meta?.image_width || img.naturalWidth;
-      const srcH = meta?.image_height || img.naturalHeight;
+      // Letterboxed draw preserving aspect ratio.
+      // Use backend meta dimensions when available, since detections are produced in that space.
+      // Fallback to decoded image dimensions.
+      const srcW = (meta?.image_width) || img.naturalWidth;
+      const srcH = (meta?.image_height) || img.naturalHeight;
       const scale = Math.min(dispW / srcW, dispH / srcH);
-      const drawW = Math.round(srcW * scale);
-      const drawH = Math.round(srcH * scale);
-      const offX = Math.round((dispW - drawW) / 2);
-      const offY = Math.round((dispH - drawH) / 2);
+      const drawW = srcW * scale;
+      const drawH = srcH * scale;
+      const offX = (dispW - drawW) / 2;
+      const offY = (dispH - drawH) / 2;
       // background
       const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#f3f4f6';
       ctx.fillStyle = cssBg;

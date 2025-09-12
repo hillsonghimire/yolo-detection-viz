@@ -129,7 +129,7 @@ export default function App() {
   return (
     <div className="container">
       <div className="header">
-        <h1>Wheat Detection System</h1>
+        <h1>WheatAI</h1>
         <a href="#" className="small">Detailed Operation Guide</a>
         <div className="theme-toggle">
           <button className="theme-btn" type="button" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">

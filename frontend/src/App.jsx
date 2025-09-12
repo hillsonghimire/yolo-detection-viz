@@ -177,8 +177,7 @@ export default function App() {
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
       {!bulkMode && (
-        <div className="card detect-card" style={{ marginTop: 14 }}>
-          <div className="minor-label">Detection Result</div>
+        <section className="detect-frame">
           <DetectPanel
             imageURL={imageURL}
             detections={filtered}
@@ -190,7 +189,7 @@ export default function App() {
           <div className="detect-controls">
             <ConfidenceRail value={conf} onChange={setConf} />
           </div>
-        </div>
+        </section>
       )}
 
       {bulkMode && (

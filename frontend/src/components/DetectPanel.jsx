@@ -168,32 +168,31 @@ export default function DetectPanel({
     const cvs = canvasRef.current;
     if (!cvs || !imageURL || !disp?.width) return;
 
-    const { width: dispW, height: dispH, dpr = 1 } = disp;
-    cvs.width = Math.round(dispW * dpr);
-    cvs.height = Math.round(dispH * dpr);
-    cvs.style.width = dispW + "px";
-    cvs.style.height = dispH + "px";
+    const { width: dispW, dpr = 1 } = disp;
 
     const ctx = cvs.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, dispW, dispH);
 
     const img = new Image();
     img.onload = () => {
-      // Letterboxed draw preserving aspect ratio.
-      // Use backend meta dimensions when available, since detections are produced in that space.
-      // Fallback to decoded image dimensions.
+      // Fit image to available width; set canvas height to exact scaled image height.
       const srcW = (meta?.image_width) || img.naturalWidth;
       const srcH = (meta?.image_height) || img.naturalHeight;
-      const scale = Math.min(dispW / srcW, dispH / srcH);
-      const drawW = srcW * scale;
-      const drawH = srcH * scale;
-      const offX = (dispW - drawW) / 2;
-      const offY = (dispH - drawH) / 2;
-      // background
-      const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#f3f4f6';
-      ctx.fillStyle = cssBg;
-      ctx.fillRect(0,0,dispW,dispH);
+      const scale = srcW ? (dispW / srcW) : 1;
+      const drawW = dispW;
+      const drawH = Math.max(1, Math.round(srcH * scale));
+
+      // Resize canvas to the exact content size
+      cvs.width = Math.round(drawW * dpr);
+      cvs.height = Math.round(drawH * dpr);
+      cvs.style.width = drawW + "px";
+      cvs.style.height = drawH + "px";
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, drawW, drawH);
+
+      // draw image without letterboxing
+      const offX = 0, offY = 0;
       ctx.drawImage(img, offX, offY, drawW, drawH);
 
       ctx.lineWidth = lineWidth;

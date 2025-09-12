@@ -12,13 +12,20 @@ export default function DetectPanel({
   meta,
   disp,
   imageName,
+  conf,
+  onChangeConf,
+  model,
   lineWidth = 2,
 }) {
   const canvasRef = useRef(null);
   const [showLabels, setShowLabels] = useState(true);
   // legend now rendered as DOM panel on the right
   const legendRef = useRef(null);
-  const [legendBottom, setLegendBottom] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const drawSizeRef = useRef({ w: 0, h: 0 });
+  const isPanningRef = useRef(false);
+  const lastPtRef = useRef({ x: 0, y: 0 });
 
   // derive a sensible base name for downloads
   const imgNameBase = (() => {
@@ -110,6 +117,27 @@ export default function DetectPanel({
   };
 
   // Build list of classes present and a color map (stable across renders)
+  const displayName = (key) => {
+    const k = String(key);
+    const num = Number.parseInt(k, 10);
+    if (model === 'spike') {
+      if (num === 0) return 'spike';
+    } else if (model === 'spikelet') {
+      if (num === 0) return 'spikelet';
+    } else if (model === 'fdk') {
+      if (num === 1) return 'healthy';
+      if (num === 0) return 'infected';
+    } else if (model === 'fhb') {
+      // Corrected: FHB labels were flipped
+      if (num === 0) return 'healthy';
+      if (num === 1) return 'infected';
+    }
+    return k;
+  };
+
+  // Map class key to the color/display key for legend alignment (no flips)
+  const colorKeyForModel = (k) => String(k);
+
   const { classList, colorOf, counts } = useMemo(() => {
     const seen = new Map(); // key -> {name, color}
     const order = [];
@@ -132,6 +160,16 @@ export default function DetectPanel({
         chip: `hsl(${h} ${s}% ${l}%)`,
       };
     };
+    const colorKey = (k) => String(k);
+    const legendLabel = (k) => {
+      if (model === 'fdk') {
+        const s = String(k);
+        if (s === '0') return 'infected';
+        if (s === '1') return 'healthy';
+        return s;
+      }
+      return displayName(k);
+    };
 
     (detections || []).forEach((d) => {
       const key =
@@ -139,7 +177,7 @@ export default function DetectPanel({
         d.class_id != null ? String(d.class_id) :
         "obj";
       if (!seen.has(key)) {
-        seen.set(key, { name: key, color: colorOfKey(key) });
+        seen.set(key, { name: legendLabel(key), color: colorOfKey(colorKey(key)) });
         order.push(key);
       }
     });
@@ -150,7 +188,7 @@ export default function DetectPanel({
     for (const d of allDetections || []) {
       const key = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : "obj";
       r.set(key, (r.get(key) || 0) + 1);
-      if (!seen.has(key)) { seen.set(key, { name: key, color: colorOfKey(key) }); order.push(key); }
+      if (!seen.has(key)) { seen.set(key, { name: legendLabel(key), color: colorOfKey(colorKey(key)) }); order.push(key); }
     }
     for (const d of detections || []) {
       const key = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : "obj";
@@ -164,7 +202,7 @@ export default function DetectPanel({
       (seen.get(String(key)) || { color: colorOfKey(String(key)) }).color;
 
     return { classList: order.map((k) => ({ key: k, ...seen.get(k) })), colorOf, counts: { f, r } };
-  }, [detections, allDetections]);
+  }, [detections, allDetections, model]);
 
   useEffect(() => {
     const cvs = canvasRef.current;
@@ -197,8 +235,12 @@ export default function DetectPanel({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, drawW, drawH);
 
-      // draw image without letterboxing
+      // Save size for pan clamping and draw with pan/zoom
+      drawSizeRef.current = { w: drawW, h: drawH };
       const offX = 0, offY = 0;
+      ctx.save();
+      ctx.translate(offset.x, offset.y);
+      ctx.scale(zoom, zoom);
       ctx.drawImage(img, offX, offY, drawW, drawH);
 
       ctx.lineWidth = lineWidth;
@@ -234,10 +276,8 @@ export default function DetectPanel({
         ctx.stroke();
 
         if (showLabels) {
-          const name =
-            d.class_name ??
-            (d.class != null ? String(d.class) :
-            d.class_id != null ? `cls ${d.class_id}` : "obj");
+          const key = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : 'obj';
+          const name = displayName(key);
           const confPct = Math.round(((d.confidence ?? 0) * 1000)) / 10;
           const label = `${name} ${confPct}%`;
 
@@ -262,22 +302,62 @@ export default function DetectPanel({
       }
 
       // legend moved to DOM; no canvas legend drawing
+      ctx.restore();
     };
     img.src = imageURL;
-  }, [imageURL, detections, meta, disp, showLabels, lineWidth, classList, colorOf]);
+  }, [imageURL, detections, meta, disp, showLabels, lineWidth, classList, colorOf, zoom, offset]);
 
-  // Track legend panel height to place floating slider just below it
+  // legend size not needed
+
+  // Clamp pan when zoom changes
   useEffect(() => {
-    const update = () => {
-      const el = legendRef.current;
-      if (!el) return;
-      const next = (el.offsetTop || 0) + (el.offsetHeight || 0);
-      setLegendBottom((prev) => (prev !== next ? next : prev));
+    const { w, h } = drawSizeRef.current;
+    if (!w || !h) return;
+    setOffset((prev) => {
+      if (zoom <= 1) return { x: 0, y: 0 };
+      const minX = -(w * (zoom - 1));
+      const minY = -(h * (zoom - 1));
+      const nx = Math.max(minX, Math.min(0, prev.x));
+      const ny = Math.max(minY, Math.min(0, prev.y));
+      return (nx !== prev.x || ny !== prev.y) ? { x: nx, y: ny } : prev;
+    });
+  }, [zoom]);
+
+  // Mouse drag to pan
+  useEffect(() => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const onDown = (e) => {
+      if (zoom <= 1) return;
+      isPanningRef.current = true;
+      lastPtRef.current = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
     };
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [imageURL, classList, meta]);
+    const onMove = (e) => {
+      if (!isPanningRef.current) return;
+      const dx = e.clientX - lastPtRef.current.x;
+      const dy = e.clientY - lastPtRef.current.y;
+      lastPtRef.current = { x: e.clientX, y: e.clientY };
+      setOffset((prev) => {
+        const { w, h } = drawSizeRef.current;
+        if (!w || !h) return prev;
+        const minX = -(w * (zoom - 1));
+        const minY = -(h * (zoom - 1));
+        const nx = Math.max(minX, Math.min(0, prev.x + dx));
+        const ny = Math.max(minY, Math.min(0, prev.y + dy));
+        return { x: nx, y: ny };
+      });
+    };
+    const onUp = () => { isPanningRef.current = false; };
+    cvs.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      cvs.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [zoom]);
 
   return (
     <div className="panel">
@@ -297,20 +377,32 @@ export default function DetectPanel({
         </div>
       )}
       {imageURL && (
+        <div className="zoom-toolbar" style={{ left: 10, top: 10 }}>
+          <button className="icon-btn" type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z + 0.25))}>+
+          </button>
+          <button className="icon-btn" type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z - 0.25))}>–
+          </button>
+        </div>
+      )}
+      {imageURL && (
         <div ref={legendRef} className="legend-panel" style={{ right: 10, top: 10 }}>
           <div className="legend-head">
             <div className="legend-title">Legend</div>
           </div>
           <div className="legend-items">
-            {classList.map((it) => (
-              <div key={it.key} className="legend-item">
-                <span className="legend-swatch" style={{ background: it.color.chip }} />
-                <span className="legend-name">{it.name}</span>
-                <span className="legend-count">
-                  {(counts?.f?.get(it.key) || 0)} / {(counts?.r?.get(it.key) || 0)}
-                </span>
-              </div>
-            ))}
+            {classList.map((it) => {
+              const keyStr = String(it.key);
+              const name = model === 'fdk' ? (keyStr === '0' ? 'infected' : (keyStr === '1' ? 'healthy' : keyStr)) : it.name;
+              const shown = (counts?.f?.get(it.key) || 0);
+              const total = (counts?.r?.get(it.key) || 0);
+              return (
+                <div key={it.key} className="legend-item">
+                  <span className="legend-swatch" style={{ background: it.color.chip }} />
+                  <span className="legend-name">{name}</span>
+                  <span className="legend-count">{shown} / {total}</span>
+                </div>
+              );
+            })}
           </div>
           <div className="legend-meta">
             <span className="legend-badge">Total: {(counts?.f ? Array.from(counts.f.values()).reduce((a,b)=>a+b,0) : (detections?.length||0))} / {(counts?.r ? Array.from(counts.r.values()).reduce((a,b)=>a+b,0) : (allDetections?.length||0))}</span>
@@ -361,23 +453,7 @@ export default function DetectPanel({
           </div>
         </div>
       )}
-      {imageURL && typeof conf === 'number' && typeof onChangeConf === 'function' && (
-        <div className="legend-vslider-float" style={{ right: 10, top: (legendBottom + 8) }}>
-          <div className="vslider" aria-label="Confidence">
-            <input
-              className="modern-hslider"
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={Math.max(0, Math.min(1, conf))}
-              onChange={(e) => onChangeConf(parseFloat(e.target.value))}
-              style={{ '--pct': `${Math.round((Math.max(0, Math.min(1, conf))) * 100)}%` }}
-            />
-          </div>
-          <div className="legend-badge" title={`${Math.round((conf||0)*100)}%`} aria-live="polite">Conf {Math.round((conf||0)*100)}%</div>
-        </div>
-      )}
+      
     </div>
   );
 }

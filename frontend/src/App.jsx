@@ -107,11 +107,7 @@ export default function App() {
       if (data?.image_width && data?.image_height) {
         setMeta({ image_width: data.image_width, image_height: data.image_height });
       }
-      if (dets.length) {
-        const s = dets.map((d) => d.confidence ?? d.conf ?? 0).sort((a, b) => a - b);
-        const m = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
-        setConf(Math.max(0.05, Math.min(0.8, m)));
-      }
+      // Keep user's confidence setting stable; do not auto-adjust
     } catch (e) {
       setMsg(String(e.message || e));
     } finally {
@@ -185,6 +181,7 @@ export default function App() {
             meta={meta}
             disp={disp}
             imageName={file?.name || null}
+            model={model}
           />
           <div className="detect-controls">
             <ConfidenceRail value={conf} onChange={setConf} />

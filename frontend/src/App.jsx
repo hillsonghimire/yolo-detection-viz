@@ -137,7 +137,7 @@ export default function App() {
           </button>
         </div>
       </div>
-      <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p>
+      {/* <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p> */}
 
       <div className="topbar">
         <ModelSelector model={model} setModel={setModel} />
@@ -146,85 +146,51 @@ export default function App() {
             {bulkMode ? "Single Image Mode" : "Bulk Processing"}
           </button>
         </div>
-        <div className="legend">
-          {/* overall counts still available if you want */}
-          <span className="badge" title="shown / total">
-            Total: {filtered.length} / {raw.length}
-          </span>
-
-          {/* per-class chips */}
-          {classCounts.keys.map((k) => {
-            const shown = classCounts.f.get(k) || 0;
-            const total = classCounts.r.get(k) || 0;
-            const col = colorOfKey(k);
-            return (
-              <span
-                key={k}
-                className="badge"
-                title={`${k}: ${shown} shown / ${total} total`}
-                style={{ background: col.chip, color: col.textOnChip }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    display: "inline-block",
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: col.dot,
-                    marginRight: 6,
-                    verticalAlign: "-1px",
-                  }}
-                />
-                {k}: {shown}/{total}
-              </span>
-            );
-          })}
-
-          {meta && (
-            <span className="badge">
-              Source: {meta.image_width}×{meta.image_height}
-            </span>
-          )}
-        </div>
+        {/* legend chips removed to avoid duplication; stats now inside detection panel */}
       </div>
 
       {!bulkMode && (
-      <div className="card detect-card">
-        <div className="detect-inner">
-          <div className="panel-col">
-            <div className="minor-label">Upload Image</div>
-            <UploadPanel
-              onFile={setNewFile}
-              imageURL={imageURL}
-              onRun={onRun}
-              busy={busy}
-              disp={disp}
-              setDisp={setDisp}
-            />
+        <div className="card input-card">
+          <div className="input-header">
+            <h3>Select or Upload Image</h3>
+            <div className="small" style={{ marginLeft: 'auto' }}>Pick a sample or upload your own</div>
           </div>
-          <div className="panel-col">
-            <div className="minor-label">Detection Result</div>
-            <DetectPanel
-              imageURL={imageURL}
-              detections={filtered}
-              meta={meta}
-              disp={disp}
-              imageName={file?.name || null}
-            />
+          <div className="input-grid">
+            <div className="input-upload">
+              <UploadPanel
+                onFile={setNewFile}
+                imageURL={imageURL}
+                fileName={file?.name || null}
+                onRun={onRun}
+                busy={busy}
+                disp={disp}
+                setDisp={setDisp}
+              />
+            </div>
+            <div className="input-gallery">
+              <SampleGallery model={model} onPick={onPickSample} />
+            </div>
           </div>
         </div>
-
-        <div className="detect-controls">
-          <ConfidenceRail value={conf} onChange={setConf} />
-        </div>
-      </div>
       )}
 
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
       {!bulkMode && (
-        <SampleGallery model={model} onPick={onPickSample} />
+        <div className="card detect-card" style={{ marginTop: 14 }}>
+          <div className="minor-label">Detection Result</div>
+          <DetectPanel
+            imageURL={imageURL}
+            detections={filtered}
+            allDetections={raw}
+            meta={meta}
+            disp={disp}
+            imageName={file?.name || null}
+          />
+          <div className="detect-controls">
+            <ConfidenceRail value={conf} onChange={setConf} />
+          </div>
+        </div>
       )}
 
       {bulkMode && (

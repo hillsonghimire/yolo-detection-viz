@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export default function DetectPanel({
   imageURL,
   detections,
+  allDetections = [],
   meta,
   disp,
   imageName,
@@ -15,7 +16,7 @@ export default function DetectPanel({
 }) {
   const canvasRef = useRef(null);
   const [showLabels, setShowLabels] = useState(true);
-  const [legendRect, setLegendRect] = useState({ x: 0, y: 10, w: 0, h: 0 });
+  // legend now rendered as DOM panel on the right
 
   // derive a sensible base name for downloads
   const imgNameBase = (() => {
@@ -107,8 +108,8 @@ export default function DetectPanel({
   };
 
   // Build list of classes present and a color map (stable across renders)
-  const { classList, colorOf } = useMemo(() => {
-    const seen = new Map(); // key -> {name, idx}
+  const { classList, colorOf, counts } = useMemo(() => {
+    const seen = new Map(); // key -> {name, color}
     const order = [];
     const hash = (s) => {
       let h = 2166136261 >>> 0;
@@ -141,11 +142,27 @@ export default function DetectPanel({
       }
     });
 
+    // counts per class for filtered and all
+    const f = new Map();
+    const r = new Map();
+    for (const d of allDetections || []) {
+      const key = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : "obj";
+      r.set(key, (r.get(key) || 0) + 1);
+      if (!seen.has(key)) { seen.set(key, { name: key, color: colorOfKey(key) }); order.push(key); }
+    }
+    for (const d of detections || []) {
+      const key = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : "obj";
+      f.set(key, (f.get(key) || 0) + 1);
+    }
+
+    // stable order: by raw count desc, then key
+    order.sort((a, b) => (r.get(b) || 0) - (r.get(a) || 0) || String(a).localeCompare(String(b)));
+
     const colorOf = (key) =>
       (seen.get(String(key)) || { color: colorOfKey(String(key)) }).color;
 
-    return { classList: order.map((k) => ({ key: k, ...seen.get(k) })), colorOf };
-  }, [detections]);
+    return { classList: order.map((k) => ({ key: k, ...seen.get(k) })), colorOf, counts: { f, r } };
+  }, [detections, allDetections]);
 
   useEffect(() => {
     const cvs = canvasRef.current;
@@ -239,57 +256,7 @@ export default function DetectPanel({
         }
       }
 
-      // ---- draw legend (top-right)
-      if (classList.length) {
-        const title = "Legend";
-        const pad = 8;
-        const gap = 6;
-        const swatch = 14;
-        const lineH = Math.max(18, fontSize + 6);
-
-        // measure width
-        let w = ctx.measureText(title).width;
-        for (const it of classList) {
-          w = Math.max(w, swatch + 8 + ctx.measureText(it.name).width);
-        }
-        w = Math.ceil(w + pad * 2);
-        const h = Math.ceil(pad * 2 + (lineH * classList.length) + fontSize + 6);
-
-        const x0 = dispW - w - 10; // 10px from right
-        const y0 = 10;             // 10px from top
-
-        // panel
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.strokeStyle = "rgba(0,0,0,0.15)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect
-          ? ctx.roundRect(x0, y0, w, h, 8)
-          : (ctx.rect(x0, y0, w, h));
-        ctx.fill();
-        ctx.stroke();
-
-        // title
-        ctx.fillStyle = "#334155";
-        ctx.fillText(title, x0 + pad, y0 + pad);
-
-        // entries
-        let y = y0 + pad + fontSize + 6;
-        for (const it of classList) {
-          ctx.fillStyle = it.color.chip;
-          ctx.fillRect(x0 + pad, y + (lineH - swatch) / 2, swatch, swatch);
-          ctx.strokeStyle = "rgba(0,0,0,0.25)";
-          ctx.strokeRect(x0 + pad, y + (lineH - swatch) / 2, swatch, swatch);
-
-          ctx.fillStyle = "#111827";
-          ctx.fillText(it.name, x0 + pad + swatch + 8, y + (lineH - fontSize) / 2);
-          y += lineH;
-        }
-
-        // publish legend rectangle for DOM overlay positioning
-        const next = { x: x0, y: y0, w, h };
-        setLegendRect((prev) => (prev.x !== next.x || prev.y !== next.y || prev.w !== next.w || prev.h !== next.h ? next : prev));
-      }
+      // legend moved to DOM; no canvas legend drawing
     };
     img.src = imageURL;
   }, [imageURL, detections, meta, disp, showLabels, lineWidth, classList, colorOf]);
@@ -302,33 +269,69 @@ export default function DetectPanel({
       {!imageURL && (
         <div className="empty-hint" aria-live="polite">Load an image to see detections</div>
       )}
-      {imageURL && (!detections || detections.length === 0) && (
-        <div className="empty-hint" aria-live="polite">No detections above threshold</div>
-      )}
       {imageURL && (
-        <div
-          className="legend-toggle"
-          style={{ right: 10, top: (legendRect.y + legendRect.h + 8) }}
-        >
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }} title="Toggle labels on boxes">
-            <input
-              type="checkbox"
-              checked={showLabels}
-              onChange={(e) => setShowLabels(e.target.checked)}
-              aria-label="Toggle labels"
-            />
-            <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>Labels</span>
-          </label>
-        </div>
-      )}
-      {imageURL && (
-        <div className="overlay-controls">
-          <button className="btn ghost" type="button" onClick={downloadLabelsTxt} disabled={!(detections && detections.length)} title="Download YOLO polygon labels (.txt)" aria-disabled={!(detections && detections.length)}>
-            Download Labels
-          </button>
-          <button className="btn ghost" type="button" onClick={downloadPredImage} title="Download annotated image (.png)">
-            Download Image
-          </button>
+        <div className="legend-panel" style={{ right: 10, top: 10 }}>
+          <div className="legend-head">
+            <div className="legend-title">Legend</div>
+          </div>
+          <div className="legend-items">
+            {classList.map((it) => (
+              <div key={it.key} className="legend-item">
+                <span className="legend-swatch" style={{ background: it.color.chip }} />
+                <span className="legend-name">{it.name}</span>
+                <span className="legend-count">
+                  {(counts?.f?.get(it.key) || 0)} / {(counts?.r?.get(it.key) || 0)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="legend-meta">
+            <span className="legend-badge">Total: {(counts?.f ? Array.from(counts.f.values()).reduce((a,b)=>a+b,0) : (detections?.length||0))} / {(counts?.r ? Array.from(counts.r.values()).reduce((a,b)=>a+b,0) : (allDetections?.length||0))}</span>
+            {meta?.image_width && meta?.image_height && (
+              <span className="legend-badge">Source: {meta.image_width}×{meta.image_height}</span>
+            )}
+          </div>
+          <div className="legend-footer">
+            <div className="legend-actions">
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={downloadPredImage}
+                title="Download annotated image (.png)"
+                aria-label="Download annotated image"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
+                </svg>
+              </button>
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={downloadLabelsTxt}
+                title="Download labels (.txt)"
+                aria-label="Download labels"
+                disabled={!(detections && detections.length)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <path d="M14 2v6h6"></path>
+                  <path d="M16 13H8"></path>
+                  <path d="M16 17H8"></path>
+                </svg>
+              </button>
+            </div>
+            <label className="legend-check" title="Toggle labels on boxes">
+              <input
+                type="checkbox"
+                checked={showLabels}
+                onChange={(e) => setShowLabels(e.target.checked)}
+                aria-label="Toggle labels"
+              />
+              <span>Labels</span>
+            </label>
+          </div>
         </div>
       )}
     </div>

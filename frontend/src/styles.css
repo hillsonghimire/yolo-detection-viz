@@ -38,7 +38,7 @@ h1{margin:0 0 6px 0}
 .controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
 .detect-card{padding:12px 8px}
-.detect-inner{display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; justify-content:center; margin: 0 auto}
+.detect-inner{display:grid; grid-template-columns: 1fr 1.3fr; gap:16px; align-items:start; justify-content:center; margin: 0 auto}
 @media (max-width: 820px){ .detect-inner{ grid-template-columns: 1fr } .panel-col{ width:100% } }
 
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 10px 30px rgba(26, 32, 61, 0.06)}
@@ -172,3 +172,72 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px; background: 
 .detect-card h3{margin:0 0 8px 0}
 .detect-card .panel-col{ background:transparent !important; border:0 !important; box-shadow:none !important; }
 .minor-label{ font-size:16px; color: var(--fg); font-weight:600; margin-bottom:8px; text-align:center; letter-spacing:0.2px }
+
+/* Legend panel (right-most) */
+.legend-panel{
+  position:absolute;
+  background: rgba(255,255,255,0.92);
+  color:#334155;
+  border:1px solid rgba(0,0,0,0.15);
+  border-radius:10px;
+  padding:10px;
+  min-width: 160px;
+  max-width: 240px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.12);
+}
+[data-theme="dark"] .legend-panel{ background: rgba(15,23,42,0.92); color:#e2e8f0; border-color:#1e293b }
+.legend-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px }
+.legend-title{ font-weight:700; font-size:13px }
+[data-theme="dark"] .legend-title{ color:#e2e8f0 }
+.legend-actions{ display:inline-flex; align-items:center; gap:8px }
+.legend-check{ display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#334155 }
+[data-theme="dark"] .legend-check{ color:#e2e8f0 }
+.legend-items{ display:flex; flex-direction:column; gap:6px; max-height: 220px; overflow:auto }
+.legend-item{ display:flex; align-items:center; gap:8px; justify-content:flex-start }
+.legend-swatch{ width:14px; height:14px; border-radius:4px; border:1px solid rgba(0,0,0,0.25) }
+.legend-name{ font-size:12px; color:#111827 }
+[data-theme="dark"] .legend-name{ color:#e2e8f0 }
+.legend-count{ font-size:12px; color:#334155; background:#eef2ff; border:1px solid #dfe5ff; border-radius:999px; padding:2px 6px; margin-left:8px; white-space:nowrap }
+[data-theme="dark"] .legend-count{ color:#e2e8f0; background:#1e293b; border-color:#334155 }
+.legend-meta{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px }
+.legend-badge{ font-size:12px; color:#334155; background:#eef2ff; border:1px solid #dfe5ff; border-radius:999px; padding:3px 8px }
+[data-theme="dark"] .legend-badge{ color:#e2e8f0; background:#1e293b; border-color:#334155 }
+
+.legend-footer{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid rgba(0,0,0,0.12);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+[data-theme="dark"] .legend-footer{ border-color:#1e293b }
+
+.icon-btn{
+  background: transparent;
+  color: #334155;
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 8px;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.icon-btn:hover{ background: rgba(0,0,0,0.04) }
+.icon-btn:disabled{ opacity: .5; cursor: not-allowed }
+[data-theme="dark"] .icon-btn{ color:#e2e8f0; border-color:#334155 }
+[data-theme="dark"] .icon-btn:hover{ background: rgba(255,255,255,0.06) }
+
+/* Input section (top) */
+.input-card{ padding:16px }
+.input-header{ display:flex; align-items:center; gap:10px; margin-bottom: 8px }
+.input-grid{ display:grid; grid-template-columns: 1fr 1.6fr; gap:14px; align-items:start }
+@media (max-width: 960px){ .input-grid{ grid-template-columns: 1fr } }
+.input-upload .panel{ min-height: 140px; background: #f9faff; border:1px dashed #c7d2fe; border-radius:12px }
+[data-theme="dark"] .input-upload .panel{ background:#0f172a; border-color:#334155 }
+.input-gallery .gallery{ margin-top: 0 }
+.input-gallery .gallery.card{ background: transparent; border: 0; box-shadow: none; padding: 0 }
+.input-gallery .thumb{ cursor:pointer; transition: transform .12s ease, box-shadow .12s ease }
+.input-gallery .thumb:hover{ transform: translateY(-2px); box-shadow:0 8px 20px rgba(0,0,0,0.12) }

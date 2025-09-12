@@ -10,11 +10,11 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
   const fileInputRef = useRef(null);
   const [vw, setVw] = useState(typeof window !== 'undefined' ? window.innerWidth : 0);
 
-  // Compute a shared display size for the detection canvas,
-  // without rendering the input image preview.
+  // Compute a shared display size for the detection canvas based on
+  // the upload panel column width for consistent layout.
   useEffect(() => {
-    const containerW = document.querySelector('.container')?.clientWidth || window.innerWidth || 960;
-    const targetW = Math.max(360, Math.min(Math.floor(containerW - 40), 1200));
+    const wrap = wrapRef.current;
+    const targetW = Math.max(300, Math.floor((wrap?.clientWidth || 360)));
     const targetH = Math.floor(targetW * (640 / 360)); // keep 9:16 portrait ratio
     const dpr = window.devicePixelRatio || 1;
     setDisp({ width: targetW, height: targetH, dpr });

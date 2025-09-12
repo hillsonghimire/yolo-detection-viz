@@ -28,16 +28,6 @@ export default function ConfidenceRail({ value, onChange }) {
         <option value="1" />
       </datalist>
       <div className="hslider-value" title={`${Math.round(pct)}%`} aria-live="polite">{value.toFixed(2)}</div>
-      <input
-        type="number"
-        min={0}
-        max={1}
-        step={0.01}
-        value={clamp01(value)}
-        onChange={onNumChange}
-        style={{ width: 72, marginLeft: 8, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--fg)' }}
-        aria-label="Confidence value"
-      />
     </div>
   );
 }

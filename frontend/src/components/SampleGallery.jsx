@@ -5,11 +5,15 @@ const samples = {
     "/samples/spike/spike2.jpg",
     "/samples/spike/spike3.jpg",
     "/samples/spike/spike4.jpg",
+    "/samples/spike/spike4.jpg",
+    "/samples/spike/spike4.jpg",
   ],
   spikelet: [
     "/samples/spikelet/spikelet1.JPG",
     "/samples/spikelet/spikelet2.PNG",
     "/samples/spikelet/spikelet3.PNG",
+    "/samples/spikelet/spikelet4.JPG",
+    "/samples/spikelet/spikelet4.JPG",
     "/samples/spikelet/spikelet4.JPG",
   ],
   fhb: [
@@ -17,8 +21,8 @@ const samples = {
     "/samples/fhb/fhb8.JPG",
     "/samples/fhb/fhb3.jpg",
     "/samples/fhb/fhb4.jpg",
-    // "/samples/fhb/fhb5.jpg",
-    // "/samples/fhb/fhb6.JPG",
+    "/samples/fhb/fhb5.jpg",
+    "/samples/fhb/fhb6.JPG",
     // "/samples/fhb/fhb2.jpg",
     ,
   ],
@@ -26,6 +30,8 @@ const samples = {
     "/samples/fdk/fdk1.JPG",
     "/samples/fdk/fdk2.JPG",
     "/samples/fdk/fdk3.JPG",
+    "/samples/fdk/fdk4.JPG",
+    "/samples/fdk/fdk4.JPG",
     "/samples/fdk/fdk4.JPG",
   ],
 };
@@ -38,7 +44,7 @@ export default function SampleGallery({ model, onPick }){
   };
   return (
     <div className="gallery card">
-      <h4>Try with sample images</h4>
+      {/* <h4>Try with sample images</h4> */}
       <div className="thumbs">
         {imgs.map((url,idx)=> (
           <div key={idx} className="thumb"

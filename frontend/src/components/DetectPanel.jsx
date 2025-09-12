@@ -17,6 +17,8 @@ export default function DetectPanel({
   const canvasRef = useRef(null);
   const [showLabels, setShowLabels] = useState(true);
   // legend now rendered as DOM panel on the right
+  const legendRef = useRef(null);
+  const [legendBottom, setLegendBottom] = useState(0);
 
   // derive a sensible base name for downloads
   const imgNameBase = (() => {
@@ -178,8 +180,12 @@ export default function DetectPanel({
       // Fit image to available width; set canvas height to exact scaled image height.
       const srcW = (meta?.image_width) || img.naturalWidth;
       const srcH = (meta?.image_height) || img.naturalHeight;
-      const scale = srcW ? (dispW / srcW) : 1;
-      const drawW = dispW;
+      // respect viewport height to avoid scrolling; adjust width as needed
+      const maxH = Math.max(200, Math.floor((window.innerHeight || 800) - 260));
+      const scaleW = srcW ? (dispW / srcW) : 1;
+      const scaleH = srcH ? (maxH / srcH) : 1;
+      const scale = Math.min(scaleW, scaleH);
+      const drawW = Math.max(1, Math.round(srcW * scale));
       const drawH = Math.max(1, Math.round(srcH * scale));
 
       // Resize canvas to the exact content size
@@ -260,16 +266,38 @@ export default function DetectPanel({
     img.src = imageURL;
   }, [imageURL, detections, meta, disp, showLabels, lineWidth, classList, colorOf]);
 
+  // Track legend panel height to place floating slider just below it
+  useEffect(() => {
+    const update = () => {
+      const el = legendRef.current;
+      if (!el) return;
+      const next = (el.offsetTop || 0) + (el.offsetHeight || 0);
+      setLegendBottom((prev) => (prev !== next ? next : prev));
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [imageURL, classList, meta]);
+
   return (
     <div className="panel">
-      <div className="canvas-wrap">
-        <canvas ref={canvasRef} />
-      </div>
-      {!imageURL && (
-        <div className="empty-hint" aria-live="polite">Load an image to see detections</div>
+      {imageURL ? (
+        <div className="canvas-wrap">
+          <canvas ref={canvasRef} />
+        </div>
+      ) : (
+        <div
+          className="detect-placeholder"
+          style={{
+            width: Math.round((disp?.width || 360)),
+            height: Math.round((((disp?.width || 360) * (640 / 360)) / 2)),
+          }}
+        >
+          <div className="placeholder-text">Load an image to see detections</div>
+        </div>
       )}
       {imageURL && (
-        <div className="legend-panel" style={{ right: 10, top: 10 }}>
+        <div ref={legendRef} className="legend-panel" style={{ right: 10, top: 10 }}>
           <div className="legend-head">
             <div className="legend-title">Legend</div>
           </div>
@@ -331,6 +359,23 @@ export default function DetectPanel({
               <span>Labels</span>
             </label>
           </div>
+        </div>
+      )}
+      {imageURL && typeof conf === 'number' && typeof onChangeConf === 'function' && (
+        <div className="legend-vslider-float" style={{ right: 10, top: (legendBottom + 8) }}>
+          <div className="vslider" aria-label="Confidence">
+            <input
+              className="modern-hslider"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={Math.max(0, Math.min(1, conf))}
+              onChange={(e) => onChangeConf(parseFloat(e.target.value))}
+              style={{ '--pct': `${Math.round((Math.max(0, Math.min(1, conf))) * 100)}%` }}
+            />
+          </div>
+          <div className="legend-badge" title={`${Math.round((conf||0)*100)}%`} aria-live="polite">Conf {Math.round((conf||0)*100)}%</div>
         </div>
       )}
     </div>

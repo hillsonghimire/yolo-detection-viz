@@ -7,8 +7,8 @@ services:
       POSTGRES_PASSWORD: yolo_pass
     volumes:
       - db-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U yolo -d yoloapp"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
 
   backend:
     build: ./backend
-    entrypoint: ["/app/entrypoint.sh"]
+    entrypoint: ["/bin/sh", "-c", "/app/entrypoint.sh"]
     command: ["python","manage.py","runserver","0.0.0.0:8000"]
     environment:
       RUN_MIGRATIONS: "1"                # <- only backend migrates
@@ -38,6 +38,7 @@ services:
       MODEL_SPIKELET: "/app/models/spikelet.pt"
       MODEL_FHB:      "/app/models/fhb.pt"
       MODEL_FDK:      "/app/models/fdk.pt"
+      MODEL_KERNEL:   "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
       # CORS
       CORS_ALLOW_ALL: "1"
@@ -47,7 +48,6 @@ services:
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
     volumes:
       - ./backend:/app
-      # - ./models:/app/models
       - media-data:/app/media
     depends_on:
       db:
@@ -78,11 +78,10 @@ services:
       DB_PORT: "5432"
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-      MODEL_PATH: "/app/models/obb_best.pt"
+      MODEL_KERNEL: "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
     volumes:
       - ./backend:/app
-      - ./models:/app/models
       - media-data:/app/media
     depends_on:
       backend:

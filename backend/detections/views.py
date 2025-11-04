@@ -20,8 +20,8 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from celery import chord, group
 
 from .models import DetectionJob, BulkDetectionJob
-from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer
-from .tasks import run_large_detection, generate_excel_report
+from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer
+from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement
 from .detect_models import run_inference
 
 
@@ -55,7 +55,7 @@ class BasicDetectView(APIView):
                 "properties": {
                     "image": {"type": "string", "format": "binary", "description": "Image file (preferred key)"},
                     "file":  {"type": "string", "format": "binary", "description": "Alternate key for image"},
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel"], "default": "spike"},
                     "conf":  {"type": "number", "default": 0.05, "description": "Server-side min confidence (keep low)"},
                 },
                 "required": ["image"]
@@ -256,7 +256,7 @@ class BulkDetectView(APIView):
                         "default": 0.25,
                         "description": "Confidence threshold for detections"
                     },
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "third"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel"], "default": "spike"},
                 },
                 "required": ["images", "model"]
             }
@@ -290,6 +290,11 @@ class BulkDetectView(APIView):
         bulk_job = BulkDetectionJob.objects.create(status="PENDING")
         
         tasks = []
+        sidemm = float(serializer.validated_data.get('sidemm', 40.0))
+        allowed_ids_csv = serializer.validated_data.get('allowed_ids', "425,100,201,310")
+        use_sam = bool(serializer.validated_data.get('use_sam', False))
+        sam_checkpoint = serializer.validated_data.get('sam_checkpoint', "")
+        sam_model_type = serializer.validated_data.get('sam_model_type', "vit_b")
         with transaction.atomic():
             for image_file in images:
                 job = DetectionJob.objects.create(
@@ -299,7 +304,21 @@ class BulkDetectView(APIView):
                     progress=0,
                 )
                 bulk_job.jobs.add(job)
-                tasks.append(run_large_detection.s(str(job.id), job.image.path, confidence, model_name))
+                if model_name.lower() == "kernel":
+                    tasks.append(
+                        run_kernel_measurement.s(
+                            str(job.id),
+                            job.image.path,
+                            model_name,
+                            sidemm,
+                            allowed_ids_csv,
+                            use_sam,
+                            sam_checkpoint,
+                            sam_model_type,
+                        )
+                    )
+                else:
+                    tasks.append(run_large_detection.s(str(job.id), job.image.path, confidence, model_name))
 
         # Mark bulk job as processing while individual jobs run
         bulk_job.status = "PROCESSING"
@@ -318,6 +337,11 @@ class BulkJobsView(generics.ListAPIView):
     """List all bulk detection jobs."""
     serializer_class = BulkDetectionJobSerializer
     queryset = BulkDetectionJob.objects.all().order_by("-created_at")
+
+class JobDetailView(generics.RetrieveAPIView):
+    serializer_class = DetectionJobSerializer
+    queryset = DetectionJob.objects.all()
+    lookup_field = "id"
 
 class ListJobsView(generics.ListAPIView):
     """List all individual detection jobs with filtering and pagination support."""
@@ -457,3 +481,113 @@ class DownloadExcelView(APIView):
             filename=fname,
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+class DownloadMeasureImageView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(
+        summary="Download kernel measurement overlay image",
+        parameters=[OpenApiParameter(name='fname', type=OpenApiTypes.STR, location=OpenApiParameter.PATH)],
+        responses={200: OpenApiResponse(response={'type': 'string', 'format': 'binary'})},
+        tags=["Detection"],
+    )
+    def get(self, request, fname: str):
+        rel = os.path.join("measure", fname)
+        abs_path = os.path.join(settings.MEDIA_ROOT, rel)
+        if not os.path.exists(abs_path):
+            raise Http404()
+        return FileResponse(open(abs_path, "rb"), as_attachment=True, filename=fname, content_type="image/png")
+
+class DownloadMeasureCSVView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(
+        summary="Download kernel measurement CSV",
+        parameters=[OpenApiParameter(name='fname', type=OpenApiTypes.STR, location=OpenApiParameter.PATH)],
+        responses={200: OpenApiResponse(response={'type': 'string', 'format': 'binary'})},
+        tags=["Detection"],
+    )
+    def get(self, request, fname: str):
+        rel = os.path.join("measure", fname)
+        abs_path = os.path.join(settings.MEDIA_ROOT, rel)
+        if not os.path.exists(abs_path):
+            raise Http404()
+        return FileResponse(open(abs_path, "rb"), as_attachment=True, filename=fname, content_type="text/csv")
+
+
+class KernelMeasureView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Submit kernel size measurement job",
+        description=
+        """
+        Runs YOLO-OBB detection followed by ArUco-based metric conversion to compute kernel length/width (and optional SAM refinement).
+        Returns a job ID; poll jobs list or fetch the job to retrieve CSV and overlay paths when done.
+        """,
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {'type': 'string', 'format': 'binary', 'description': 'Image to process'},
+                    'model': {'type': 'string', 'default': 'kernel', 'description': 'Model key to use (detect_models.MODEL_REGISTRY)'},
+                    'sidemm': {'type': 'number', 'description': 'ArUco marker side length in millimeters'},
+                    'allowed_ids': {'type': 'string', 'default': '0,1,2,3', 'description': 'Comma-separated allowed ArUco IDs'},
+                    'use_sam': {'type': 'boolean', 'default': False},
+                    'sam_checkpoint': {'type': 'string', 'default': ''},
+                    'sam_model_type': {'type': 'string', 'enum': ['vit_b','vit_l','vit_h'], 'default': 'vit_b'},
+                },
+                'required': ['image', 'sidemm']
+            }
+        },
+        responses={
+            202: OpenApiResponse(
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'unique_id': {'type': 'string', 'format': 'uuid'},
+                        'success': {'type': 'boolean'},
+                        'message': {'type': 'string', 'example': 'Job submitted successfully'}
+                    }
+                },
+                description='Measurement job submitted'
+            ),
+        },
+        tags=["Detection"],
+    )
+    def post(self, request, *args, **kwargs):
+        s = KernelMeasureRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        if "image" not in request.FILES:
+            return Response({"detail": "image file is required"}, status=400)
+
+        image = request.FILES["image"]
+        model_name = s.validated_data.get("model", "kernel")
+        sidemm = float(s.validated_data["sidemm"])  # required
+        allowed_ids_csv = s.validated_data.get("allowed_ids", "0,1,2,3")
+        use_sam = bool(s.validated_data.get("use_sam", False))
+        sam_checkpoint = s.validated_data.get("sam_checkpoint", "")
+        sam_model_type = s.validated_data.get("sam_model_type", "vit_b")
+
+        job = DetectionJob.objects.create(
+            image=image,
+            status="QUEUED",
+            progress=0,
+        )
+
+        image_path = job.image.path
+        run_kernel_measurement.delay(
+            str(job.id),
+            image_path,
+            model_name,
+            sidemm,
+            allowed_ids_csv,
+            use_sam,
+            sam_checkpoint,
+            sam_model_type,
+        )
+
+        return Response({"unique_id": str(job.id), "success": True}, status=status.HTTP_202_ACCEPTED)

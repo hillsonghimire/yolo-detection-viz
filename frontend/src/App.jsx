@@ -5,7 +5,8 @@ import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
-import { detectOnce } from "./lib/api.js";
+import { detectOnce, measureKernel, getJob, downloadMeasure } from "./lib/api.js";
+import ZoomableImage from "./components/ZoomableImage.jsx";
 import "./styles.css";
 
 export default function App() {
@@ -26,6 +27,11 @@ export default function App() {
   const [conf, setConf] = useState(0.3);
   const [msg, setMsg] = useState("");
   const [bulkMode, setBulkMode] = useState(false);
+  // kernel measurement state
+  const [km, setKm] = useState({ sidemm: 40, allowedIds: "425,100,201,310", useSam: true, samCheckpoint: "models/sam_vit_b_01ec64.pth", samModelType: "vit_b" });
+  const [kmJobId, setKmJobId] = useState("");
+  const [kmOverlay, setKmOverlay] = useState("");
+  const [kmCSV, setKmCSV] = useState("");
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -84,11 +90,17 @@ export default function App() {
     return { keys, f, r };
   }, [raw, filtered]);
 
+  const fallbackWidth = 420;
+  const fallbackHeight = Math.round(fallbackWidth * 0.75);
+  const placeholderWidth = Math.round(disp?.width || fallbackWidth);
+  const placeholderHeight = Math.round(disp?.height || fallbackHeight);
+
   const setNewFile = (f) => {
     setFile(f || null);
     setRaw([]);
     setMeta(null);
     setMsg("");
+    setKmJobId(""); setKmOverlay(""); setKmCSV("");
     setBulkMode(false);
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     urlRef.current = f ? URL.createObjectURL(f) : null;
@@ -100,14 +112,52 @@ export default function App() {
     setBusy(true);
     setMsg("");
     try {
-      // ONE request; later filtering is client-side
-      const data = await detectOnce({ file, model, minConf: 0.05 });
-      const dets = Array.isArray(data?.detections) ? data.detections : [];
-      setRaw(dets);
-      if (data?.image_width && data?.image_height) {
-        setMeta({ image_width: data.image_width, image_height: data.image_height });
+      if (model === 'kernel') {
+        const { unique_id } = await measureKernel({
+          file,
+          model: 'kernel',
+          sidemm: km.sidemm,
+          allowedIds: km.allowedIds,
+          useSam: km.useSam,
+          samCheckpoint: km.samCheckpoint,
+          samModelType: km.samModelType,
+        });
+        setKmJobId(unique_id);
+        // poll job until DONE (basic, time-limited)
+        const deadline = Date.now() + 60000; // 60s
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1500));
+          const job = await getJob(unique_id);
+          if (job?.status === 'DONE') {
+            try {
+              const res = typeof job.result === 'string' ? JSON.parse(job.result) : job.result;
+              const ovRel = res?.measurement_overlay || '';
+              const csvRel = res?.measurement_csv || '';
+              if (ovRel) {
+                const fname = ovRel.split('/').pop();
+                setKmOverlay(downloadMeasure('image', fname));
+              }
+              if (csvRel) {
+                const fname = csvRel.split('/').pop();
+                setKmCSV(downloadMeasure('csv', fname));
+              }
+            } catch {}
+            break;
+          }
+          if (job?.status === 'FAILED') {
+            setMsg('Measurement failed');
+            break;
+          }
+        }
+      } else {
+        // ONE request; later filtering is client-side
+        const data = await detectOnce({ file, model, minConf: 0.05 });
+        const dets = Array.isArray(data?.detections) ? data.detections : [];
+        setRaw(dets);
+        if (data?.image_width && data?.image_height) {
+          setMeta({ image_width: data.image_width, image_height: data.image_height });
+        }
       }
-      // Keep user's confidence setting stable; do not auto-adjust
     } catch (e) {
       setMsg(String(e.message || e));
     } finally {
@@ -125,8 +175,10 @@ export default function App() {
   return (
     <div className="container">
       <div className="header">
-        <h1>WheatAI</h1>
+        <img className="app-logo" src="/logo/Logo_1.png" alt="WheatAI logo" />
+        <h1 className="visually-hidden">WheatAI</h1>
         {/* <a href="#" className="small">Detailed Operation Guide</a> */}
+
         <div className="theme-toggle">
           <button className="theme-btn" type="button" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">
             {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
@@ -172,7 +224,7 @@ export default function App() {
 
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
-      {!bulkMode && (
+      {!bulkMode && model !== 'kernel' && (
         <section className="detect-frame">
           <DetectPanel
             imageURL={imageURL}
@@ -189,8 +241,87 @@ export default function App() {
         </section>
       )}
 
+      {!bulkMode && model === 'kernel' && (
+        <section className="detect-frame">
+          <div className="panel" style={{ flex: 1, minHeight: 120, display:'flex', flexDirection:'column', alignItems:'stretch', justifyContent:'flex-start' }}>
+            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {imageURL ? (
+                <ZoomableImage
+                  src={kmOverlay || imageURL}
+                  placeholder={"Upload an image to preview it here."}
+                  frameWidth={placeholderWidth}
+                  frameHeight={placeholderHeight}
+                  downloads={[
+                    ...(kmCSV ? [{
+                      href: kmCSV,
+                      label: "Download CSV",
+                      downloadName: kmCSV.split("/").pop() || undefined,
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                      ),
+                    }] : []),
+                    ...(kmOverlay ? [{
+                      href: kmOverlay,
+                      label: "Download image",
+                      downloadName: kmOverlay.split("/").pop() || undefined,
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
+                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                          <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
+                        </svg>
+                      ),
+                    }] : []),
+                  ]}
+                />
+              ) : (
+                <div
+                  className="detect-placeholder"
+                  style={{ width: placeholderWidth, height: placeholderHeight }}
+                >
+                  <div className="placeholder-text">Upload an image to preview it here.</div>
+                </div>
+              )}
+              {imageURL && !kmOverlay && (
+                <div className="small" style={{ color: 'var(--muted)' }}>
+                  Submit to generate the measurement overlay and CSV.
+                </div>
+              )}
+            </div>
+            <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', borderTop: '1px solid var(--line)' }}>
+              <label className="small">Side (mm)</label>
+              <input className="input" style={{ width: 90 }} type="number" min="0.1" step="0.1" value={km.sidemm}
+                onChange={(e)=> setKm(v=> ({...v, sidemm: parseFloat(e.target.value)||0}))} />
+              <label className="small">ArUco IDs</label>
+              <input className="input" style={{ width: 200 }} type="text" value={km.allowedIds}
+                onChange={(e)=> setKm(v=> ({...v, allowedIds: e.target.value}))} placeholder="425,100,201,310" />
+              <label className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input type="checkbox" checked={km.useSam} onChange={(e)=> setKm(v=> ({...v, useSam: e.target.checked}))} /> SAM
+              </label>
+              <input className="input" style={{ width: 240 }} type="text" disabled={!km.useSam}
+                value={km.samCheckpoint} onChange={(e)=> setKm(v=> ({...v, samCheckpoint: e.target.value}))} placeholder="models/sam_vit_b_01ec64.pth" />
+              <select className="select" disabled={!km.useSam} value={km.samModelType}
+                onChange={(e)=> setKm(v=> ({...v, samModelType: e.target.value}))}>
+                <option value="vit_b">vit_b</option>
+                <option value="vit_l">vit_l</option>
+                <option value="vit_h">vit_h</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      )}
+
       {bulkMode && (
-        <BulkPanel model={model} onExit={() => setBulkMode(false)} />
+        <BulkPanel
+          model={model}
+          onExit={() => setBulkMode(false)}
+          kernelParams={km}
+          setKernelParams={setKm}
+        />
       )}
     </div>
   );

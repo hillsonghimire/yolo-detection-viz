@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Cisco Glyph</title>
+  <rect width="64" height="64" rx="12" fill="#0f2a47"/>
+  <g fill="#00adef">
+    <rect x="8" y="28" width="4" height="22" rx="2"/>
+    <rect x="16" y="18" width="4" height="32" rx="2"/>
+    <rect x="24" y="12" width="4" height="38" rx="2"/>
+    <rect x="32" y="28" width="4" height="22" rx="2"/>
+    <rect x="40" y="12" width="4" height="38" rx="2"/>
+    <rect x="48" y="18" width="4" height="32" rx="2"/>
+    <rect x="56" y="28" width="4" height="22" rx="2"/>
+  </g>
+</svg>

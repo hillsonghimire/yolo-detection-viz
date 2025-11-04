@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { submitBulk, listBulkJobs, listJobs, downloadUrl } from "../lib/api.js";
+import { submitBulk, listBulkJobs, listJobs, downloadUrl, downloadMeasure } from "../lib/api.js";
 
-export default function BulkPanel({ model, onExit }) {
+export default function BulkPanel({ model, onExit, kernelParams, setKernelParams }) {
   const [files, setFiles] = useState([]);
   const [drag, setDrag] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -10,6 +10,15 @@ export default function BulkPanel({ model, onExit }) {
   const [jobs, setJobs] = useState([]);
   const [conf, setConf] = useState(0.25);
   const inputRef = useRef(null);
+  const kp = kernelParams || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
+  const applyKernelUpdate = (updater) => {
+    if (typeof setKernelParams === "function") {
+      setKernelParams((prev) => {
+        const base = prev || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
+        return updater(base);
+      });
+    }
+  };
 
   const onPick = (fileList) => {
     const arr = Array.from(fileList || []);
@@ -76,7 +85,11 @@ export default function BulkPanel({ model, onExit }) {
     setSubmitting(true);
     setMessage("");
     try {
-      await submitBulk({ files, model, confidence: conf });
+      const payload = { files, model, confidence: conf };
+      if ((model || "").toLowerCase() === "kernel") {
+        payload.kernelParams = kp;
+      }
+      await submitBulk(payload);
       setFiles([]);
       await refresh();
       setMessage("Bulk job submitted.");
@@ -88,6 +101,28 @@ export default function BulkPanel({ model, onExit }) {
   };
 
   const recentJobs = useMemo(() => jobs.slice(0, 20), [jobs]);
+  const extractMeasurementAssets = (job) => {
+    let overlayName = null;
+    let csvName = null;
+    let data = null;
+    try {
+      data = typeof job.result === "string" ? JSON.parse(job.result) : job.result;
+    } catch {}
+    if (data && typeof data === "object") {
+      if (typeof data.measurement_overlay === "string" && data.measurement_overlay) {
+        overlayName = data.measurement_overlay.split("/").pop();
+      }
+      if (typeof data.measurement_csv === "string" && data.measurement_csv) {
+        csvName = data.measurement_csv.split("/").pop();
+      }
+    }
+    return {
+      overlayName,
+      csvName,
+      overlayHref: overlayName ? downloadMeasure('image', overlayName) : null,
+      csvHref: csvName ? downloadMeasure('csv', csvName) : null,
+    };
+  };
 
   return (
     <div className="card" style={{ padding: 16 }}>
@@ -120,6 +155,55 @@ export default function BulkPanel({ model, onExit }) {
             />
             <div className="hslider-value">{Math.round(conf * 100)}%</div>
           </div>
+          {(model || "").toLowerCase() === "kernel" && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 14, justifyContent: 'center', alignItems: 'center' }}>
+              <label className="small">Side (mm)</label>
+              <input
+                className="input"
+                style={{ width: 90 }}
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={kp.sidemm ?? 40}
+                onChange={(e) => applyKernelUpdate((prev) => ({ ...prev, sidemm: parseFloat(e.target.value) || 0 }))}
+              />
+              <label className="small">ArUco IDs</label>
+              <input
+                className="input"
+                style={{ width: 200 }}
+                type="text"
+                value={kp.allowedIds ?? ""}
+                onChange={(e) => applyKernelUpdate((prev) => ({ ...prev, allowedIds: e.target.value }))}
+                placeholder="425,100,201,310"
+              />
+              <label className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={!!kp.useSam}
+                  onChange={(e) => applyKernelUpdate((prev) => ({ ...prev, useSam: e.target.checked }))}
+                /> SAM
+              </label>
+              <input
+                className="input"
+                style={{ width: 220 }}
+                type="text"
+                disabled={!kp.useSam}
+                value={kp.samCheckpoint ?? ""}
+                onChange={(e) => applyKernelUpdate((prev) => ({ ...prev, samCheckpoint: e.target.value }))}
+                placeholder="models/sam_vit_b_01ec64.pth"
+              />
+              <select
+                className="select"
+                value={kp.samModelType ?? "vit_b"}
+                disabled={!kp.useSam}
+                onChange={(e) => applyKernelUpdate((prev) => ({ ...prev, samModelType: e.target.value }))}
+              >
+                <option value="vit_b">vit_b</option>
+                <option value="vit_l">vit_l</option>
+                <option value="vit_h">vit_h</option>
+              </select>
+            </div>
+          )}
           <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => onPick(e.target.files)} />
         </div>
       </div>
@@ -197,6 +281,11 @@ export default function BulkPanel({ model, onExit }) {
                 const imgName = (j.image || "").split("/").pop();
                 const labName = (j.labels_file || "").split("/").pop();
                 const annName = (j.annotated_image || "").split("/").pop();
+                const { overlayHref, csvHref, overlayName, csvName } = extractMeasurementAssets(j);
+                const labelsHref = csvHref || (labName ? downloadUrl('labels', labName) : null);
+                const annotatedHref = overlayHref || (annName ? downloadUrl('image', annName) : null);
+                const labelTitle = csvHref ? "Download measurement CSV" : "Download labels (.txt)";
+                const annotatedTitle = overlayHref ? "Download measurement overlay" : "Download annotated image (.png)";
                 return (
                   <tr key={j.id} className="small" style={{ color: 'var(--fg)' }}>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{imgName || j.id}</td>
@@ -204,8 +293,8 @@ export default function BulkPanel({ model, onExit }) {
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.progress ?? 0}%</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.detection_count ?? 0}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {labName ? (
-                        <a className="icon-btn" href={downloadUrl('labels', labName)} title="Download labels (.txt)" aria-label="Download labels">
+                      {labelsHref ? (
+                        <a className="icon-btn" href={labelsHref} title={labelTitle} aria-label={labelTitle}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <path d="M14 2v6h6"></path>
@@ -218,8 +307,8 @@ export default function BulkPanel({ model, onExit }) {
                       )}
                     </td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {annName ? (
-                        <a className="icon-btn" href={downloadUrl('image', annName)} title="Download annotated image (.png)" aria-label="Download annotated image">
+                      {annotatedHref ? (
+                        <a className="icon-btn" href={annotatedHref} title={annotatedTitle} aria-label={annotatedTitle}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                             <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
                             <circle cx="8.5" cy="8.5" r="1.5"></circle>
@@ -239,12 +328,46 @@ export default function BulkPanel({ model, onExit }) {
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn ghost" type="button" onClick={refresh}>Refresh</button>
           <button className="btn ghost" type="button" onClick={() => {
-            const names = recentJobs.map(j => (j.labels_file || "").split("/").pop()).filter(Boolean);
-            names.forEach((n, i) => setTimeout(() => { const a=document.createElement('a'); a.href=downloadUrl('labels', n); a.download=n; document.body.appendChild(a); a.click(); a.remove(); }, i*150));
+            const downloads = recentJobs
+              .map((job) => {
+                const { csvHref, csvName } = extractMeasurementAssets(job);
+                if (csvHref && csvName) return { href: csvHref, name: csvName };
+                const lab = (job.labels_file || "").split("/").pop();
+                if (lab) return { href: downloadUrl('labels', lab), name: lab };
+                return null;
+              })
+              .filter(Boolean);
+            downloads.forEach((item, idx) => {
+              setTimeout(() => {
+                const a = document.createElement('a');
+                a.href = item.href;
+                if (item.name) a.download = item.name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              }, idx * 150);
+            });
           }}>Download All Labels</button>
           <button className="btn ghost" type="button" onClick={() => {
-            const names = recentJobs.map(j => (j.annotated_image || "").split("/").pop()).filter(Boolean);
-            names.forEach((n, i) => setTimeout(() => { const a=document.createElement('a'); a.href=downloadUrl('image', n); a.download=n; document.body.appendChild(a); a.click(); a.remove(); }, i*150));
+            const downloads = recentJobs
+              .map((job) => {
+                const { overlayHref, overlayName } = extractMeasurementAssets(job);
+                if (overlayHref && overlayName) return { href: overlayHref, name: overlayName };
+                const ann = (job.annotated_image || "").split("/").pop();
+                if (ann) return { href: downloadUrl('image', ann), name: ann };
+                return null;
+              })
+              .filter(Boolean);
+            downloads.forEach((item, idx) => {
+              setTimeout(() => {
+                const a = document.createElement('a');
+                a.href = item.href;
+                if (item.name) a.download = item.name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              }, idx * 150);
+            });
           }}>Download All Images</button>
         </div>
       </div>

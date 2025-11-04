@@ -14,8 +14,12 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
   // the upload panel column width for consistent layout.
   useEffect(() => {
     const wrap = wrapRef.current;
-    const targetW = Math.max(300, Math.floor((wrap?.clientWidth || 360)));
-    const targetH = Math.floor(targetW * (640 / 360)); // keep 9:16 portrait ratio
+    const rawWidth = Math.floor(wrap?.clientWidth || 0);
+    const maxWidth = 480;
+    const minWidth = 260;
+    const targetW = Math.min(maxWidth, Math.max(minWidth, rawWidth || maxWidth));
+    const ratio = 0.75; // fixed frame aspect (height = width * ratio)
+    const targetH = Math.round(targetW * ratio);
     const dpr = window.devicePixelRatio || 1;
     setDisp({ width: targetW, height: targetH, dpr });
   }, [vw]);
@@ -87,7 +91,7 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
           </button>
           {imageURL && (
             <button
-              className="btn ghost"
+              className="btn clear-btn"
               type="button"
               onClick={() => onFile(null)}
               disabled={busy}

@@ -1,0 +1,200 @@
+        quads = result.obb.xyxyxyxy  # absolute px
+        classes = result.obb.cls.cpu().numpy().astype(int).reshape(-1)
+        confs = result.obb.conf.cpu().numpy().reshape(-1)
+        q_np = quads.cpu().numpy().reshape(-1, 8)
+        for i in range(len(classes)):
+            obb_results.append({
+                "cls": classes[i],
+                "conf": float(confs[i]),
+                "quad": q_np[i].reshape(4, 2).astype(np.float32)
+            })
+    return obb_results
+
+
+def write_yolo_txt(obbs: List[Dict],
+                   image_path: str,
+                   out_dir: str,
+                   coord_precision: int = 6,
+                   conf_precision: int = 4) -> str:
+    """Write YOLO-OBB-style label (class conf x1 y1 ... x4 y4) normalized."""
+    os.makedirs(out_dir, exist_ok=True)
+    base_name = Path(image_path).stem
+    label_path = os.path.join(out_dir, f"{base_name}.txt")
+
+    img = cv2.imread(image_path)
+    H, W = img.shape[:2]
+
+    with open(label_path, 'w') as f:
+        for obb in obbs:
+            cls = int(obb["cls"])
+            conf = float(obb["conf"])
+            quad = obb["quad"].copy()
+            quad_norm = quad.copy()
+            quad_norm[:, 0] /= W
+            quad_norm[:, 1] /= H
+            s_coords = [f"{x:.{coord_precision}f}" for x in quad_norm.flatten()]
+            s_conf = f"{conf:.{conf_precision}f}"
+            f.write(f"{cls} {s_conf} " + " ".join(s_coords) + "\n")
+    return label_path
+
+
+def yolo_obb_read(path: str, W: int, H: int,
+                  normalized: bool = True, has_conf: bool = True) -> List[Dict]:
+    out = []
+    with open(path, "r") as f:
+        for li, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                continue
+            toks = line.split()
+            try:
+                if has_conf:
+                    cls = int(float(toks[0])); conf = float(toks[1]); coords = list(map(float, toks[2:10]))
+                else:
+                    cls = int(float(toks[0])); conf = 1.0; coords = list(map(float, toks[1:9]))
+            except Exception:
+                continue
+            quad = np.array(coords, dtype=np.float32).reshape(4, 2)
+            if normalized:
+                quad[:, 0] *= W; quad[:, 1] *= H
+            out.append({"idx": li, "cls": cls, "conf": conf, "quad_px": quad})
+    return out
+
+
+# ------------------------------ Geometry helpers ------------------------------
+
+def quad_length_width_mm(quad_mm: np.ndarray) -> Tuple[float, float]:
+    q = np.asarray(quad_mm, dtype=np.float32)
+    edges = [np.linalg.norm(q[i] - q[(i + 1) % 4]) for i in range(4)]
+    L = float(max(edges)); W = float(min(edges))
+    return L, W
+
+
+def sanitize_quad(quad_px: np.ndarray) -> np.ndarray:
+    q = np.asarray(quad_px, np.float32).reshape(-1, 1, 2)
+    rect = cv2.minAreaRect(q)
+    return cv2.boxPoints(rect).astype(np.float32)
+
+
+def polygon_area_mm2(poly_mm: np.ndarray) -> float:
+    """Area of mm-space polygon (N,2) using OpenCV (expects (N,1,2))."""
+    if poly_mm is None or len(poly_mm) < 3:
+        return 0.0
+    return float(cv2.contourArea(poly_mm.reshape(-1, 1, 2).astype(np.float32)))
+
+
+# ------------------------------ SAM helpers ------------------------------
+
+SAM_BOX_EXPAND_PX = 8            # pad OBB box before prompting
+SAM_MIN_CONTOUR_AREA_PX = 40     # ignore tiny blobs
+SAM_ERODE_ITERATIONS = 1         # light denoise
+SAM_ERODE_KERNEL_SIZE = 3
+SAM_IMAGE_DOWNSCALE = 1.0        # keep 1.0 unless image is huge
+SAM_USE_MULTIMASK = False
+
+def load_sam_predictor(checkpoint_path: str, model_type: str = "vit_b") -> Optional[SamPredictor]:
+    if not _HAS_SAM:
+        return None
+    sam = sam_model_registry[model_type](checkpoint=checkpoint_path)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    sam.to(device=device)
+    return SamPredictor(sam)
+
+
+def _largest_contour(mask: np.ndarray) -> Optional[np.ndarray]:
+    cnts, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    return max(cnts, key=cv2.contourArea)
+
+
+def _simplify_contour(cnt: np.ndarray, eps: float = 2.0) -> np.ndarray:
+    peri = cv2.arcLength(cnt, True)
+    return cv2.approxPolyDP(cnt, max(eps, 0.0), True)
+
+
+def _two_points_on_quad_long_axis(quad_px: np.ndarray) -> np.ndarray:
+    """Center + midpoint along the long diagonal/edge pair."""
+    q = quad_px.reshape(-1, 2).astype(np.float32)
+    dists = {(i, j): np.linalg.norm(q[i] - q[j]) for i in range(4) for j in range(i + 1, 4)}
+    (i, j) = max(dists, key=dists.get)
+    return np.stack([q.mean(axis=0), (q[i] + q[j]) / 2.0], axis=0)  # (2,2)
+
+
+def _xyxy_from_quad(quad: np.ndarray) -> List[float]:
+    x1, y1 = float(np.min(quad[:, 0])), float(np.min(quad[:, 1]))
+    x2, y2 = float(np.max(quad[:, 0])), float(np.max(quad[:, 1]))
+    return [x1, y1, x2, y2]
+
+
+def _expand_box_xyxy(box: List[float], w: int, h: int, pad: int = 0) -> List[float]:
+    x1, y1, x2, y2 = box
+    return [max(0, x1 - pad), max(0, y1 - pad), min(w - 1, x2 + pad), min(h - 1, y2 + pad)]
+
+
+def refine_quads_with_sam(img_bgr: np.ndarray,
+                          quad_list: List[np.ndarray],
+                          predictor: Optional[SamPredictor],
+                          scale_factor: float = 1.0) -> Tuple[List[Optional[np.ndarray]], List[Optional[np.ndarray]]]:
+    """Return refined quads (minAreaRect on SAM mask) and the masks."""
+    if predictor is None or not quad_list:
+        return [None] * len(quad_list), [None] * len(quad_list)
+
+    H0, W0 = img_bgr.shape[:2]
+    if scale_factor != 1.0:
+        Hs = int(H0 * scale_factor); Ws = int(W0 * scale_factor)
+        img_sam = cv2.resize(img_bgr, (Ws, Hs), interpolation=cv2.INTER_LINEAR)
+    else:
+        img_sam = img_bgr
+        Hs, Ws = H0, W0
+
+    img_rgb = cv2.cvtColor(img_sam, cv2.COLOR_BGR2RGB)
+    predictor.set_image(img_rgb)
+
+    refined_quads, masks = [], []
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (SAM_ERODE_KERNEL_SIZE, SAM_ERODE_KERNEL_SIZE))
+
+    for quad in quad_list:
+        quad_s = quad * scale_factor if scale_factor != 1.0 else quad
+        box = _expand_box_xyxy(_xyxy_from_quad(quad_s), Ws, Hs, pad=int(SAM_BOX_EXPAND_PX * scale_factor))
+        box_np = np.array(box, dtype=np.float32)
+        pts = _two_points_on_quad_long_axis(quad_s).astype(np.float32)
+        labels = np.array([1, 1], dtype=np.int32)
+
+        try:
+            masks_pred, scores, _ = predictor.predict(
+                point_coords=pts,
+                point_labels=labels,
+                box=box_np[None, :],
+                multimask_output=SAM_USE_MULTIMASK
+            )
+        except Exception:
+            masks_pred, scores = None, None
+
+        if masks_pred is None or len(masks_pred) == 0:
+            refined_quads.append(None); masks.append(None); continue
+
+        k = int(np.argmax(scores))
+        m = masks_pred[k].astype(np.uint8)
+
+        if SAM_ERODE_ITERATIONS > 0:
+            m = cv2.erode(m, kernel, iterations=SAM_ERODE_ITERATIONS)
+
+        # Skip super small blobs
+        cnt = _largest_contour(m)
+        if cnt is None or cv2.contourArea(cnt) < SAM_MIN_CONTOUR_AREA_PX:
+            refined_quads.append(None); masks.append(None); continue
+
+        rect = cv2.minAreaRect(cnt)
+        box4 = cv2.boxPoints(rect).astype(np.float32)
+        if scale_factor != 1.0:
+            box4 = box4 / scale_factor
+        refined_quads.append(box4)
+        # store a full-size mask (same size as original image)
+        if (Hs, Ws) != (H0, W0):
+            m = cv2.resize(m, (W0, H0), interpolation=cv2.INTER_NEAREST)
+        masks.append(m)
+
+    return refined_quads, masks
+
+

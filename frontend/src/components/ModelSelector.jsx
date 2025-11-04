@@ -7,6 +7,7 @@ export default function ModelSelector({ model, setModel }){
         <option value="spikelet">Spikelet</option>
         <option value="fhb">FHB</option>
         <option value="fdk">FDK</option>
+        <option value="kernel">Kernel (Size Measure)</option>
       </select>
     </div>
   );

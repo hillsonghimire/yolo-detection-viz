@@ -16,6 +16,8 @@ from PIL import Image
 
 from .models import DetectionJob
 from .inference import run_detection, _image_dims
+from django.utils import timezone
+from . import kernel_size_measure as ksm
 
 
 # New helper function to get an axis-aligned bounding box from a polygon
@@ -51,6 +53,47 @@ def _write_labels_txt(job_id: str, detections: list[dict]) -> str:
             else:
                 print(f"Skipping detection with malformed polygon data: {d}")
 
+    return rel_path
+
+
+def _write_mm_norm_labels_txt(image_path: str, detections: list[dict], meta: dict, out_dir: str) -> str:
+    """
+    Write labels in the format expected by kernel_size_measure.yolo_obb_read:
+    class conf x1 y1 x2 y2 x3 y3 x4 y4 (normalized to [0,1]).
+    Returns relative path under MEDIA_ROOT.
+    """
+    fname = f"{os.path.splitext(os.path.basename(image_path))[0]}.txt"
+    rel_path = os.path.join("labels_mm", fname)
+    abs_dir = os.path.join(settings.MEDIA_ROOT, "labels_mm")
+    os.makedirs(abs_dir, exist_ok=True)
+    abs_path = os.path.join(abs_dir, fname)
+
+    iw = float(meta.get("image_width") or 0) or _image_dims(image_path)[0]
+    ih = float(meta.get("image_height") or 0) or _image_dims(image_path)[1]
+    iw = float(iw) if iw else 1.0
+    ih = float(ih) if ih else 1.0
+
+    with open(abs_path, "w", encoding="utf-8") as f:
+        for d in detections:
+            cls = d.get("class_id")
+            if cls is None:
+                try:
+                    cls = int(d.get("class"))
+                except Exception:
+                    cls = 0
+            conf = d.get("confidence")
+            poly = d.get("polygon") or d.get("poly")
+            if not poly or len(poly) != 8:
+                continue
+            x1, y1, x2, y2, x3, y3, x4, y4 = [float(v) for v in poly]
+            coords = [
+                x1 / iw, y1 / ih,
+                x2 / iw, y2 / ih,
+                x3 / iw, y3 / ih,
+                x4 / iw, y4 / ih,
+            ]
+            parts = [str(int(cls)), f"{float(conf) if conf is not None else 0.0:.4f}"] + [f"{c:.6f}" for c in coords]
+            f.write(" ".join(parts) + "\n")
     return rel_path
 
 def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_path: str) -> str:
@@ -169,6 +212,109 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
                 job.status = "FAILED"
                 job.progress = 100
                 job.result = json.dumps({"success": False, "error": str(e)})
+                job.save(update_fields=["status", "progress", "result"])
+            except Exception:
+                pass
+        raise
+
+
+@shared_task(bind=True)
+def run_kernel_measurement(self,
+                           job_id: str,
+                           image_path: str,
+                           model_name: str,
+                           sidemm: float,
+                           allowed_ids_csv: str,
+                           use_sam: bool = False,
+                           sam_checkpoint: str = "",
+                           sam_model_type: str = "vit_b") -> str:
+    """
+    Celery task to run kernel size measurement using YOLO-OBB detections and ArUco markers.
+    - Runs detection with the specified model
+    - Writes a normalized OBB label file for measurement
+    - Executes ArUco+measurement pipeline (with optional SAM refinement)
+    Persists CSV + overlay under MEDIA_ROOT and stores paths in the job result JSON.
+    Returns the job_id on success.
+    """
+    try:
+        with transaction.atomic():
+            job = DetectionJob.objects.select_for_update().get(id=job_id)
+            job.status = "PROCESSING"
+            job.progress = 10
+            job.save(update_fields=["status", "progress"])
+
+        dets, meta = run_detection(image_path, confidence=0.05, model_name=model_name)
+
+        # Prepare label file in expected format
+        labels_rel_path = _write_mm_norm_labels_txt(image_path, dets, meta, settings.MEDIA_ROOT)
+        labels_abs_path = os.path.join(settings.MEDIA_ROOT, labels_rel_path)
+
+        # Run measurement
+        allowed_ids = set()
+        try:
+            allowed_ids = set(int(x.strip()) for x in (allowed_ids_csv or "").split(",") if x.strip() != "")
+        except Exception:
+            allowed_ids = {425, 100, 201, 310}
+        if not allowed_ids:
+            allowed_ids = {425, 100, 201, 310}
+
+        out_dir_abs = os.path.join(settings.MEDIA_ROOT, "measure")
+        os.makedirs(out_dir_abs, exist_ok=True)
+
+        if use_sam and sam_checkpoint:
+            csv_abs, overlay_abs = ksm.run_aruco_sam(
+                image_path=image_path,
+                pred_path=labels_abs_path,
+                sam_checkpoint_path=sam_checkpoint,
+                sam_model_type=sam_model_type,
+                sidemm=float(sidemm),
+                allowed_ids=allowed_ids,
+                output_dir=out_dir_abs,
+            )
+        else:
+            csv_abs, overlay_abs = ksm.run_aruco_nosam(
+                image_path=image_path,
+                pred_path=labels_abs_path,
+                sidemm=float(sidemm),
+                allowed_ids=allowed_ids,
+                output_dir=out_dir_abs,
+            )
+
+        # Build rel paths
+        csv_rel = os.path.relpath(csv_abs, settings.MEDIA_ROOT)
+        overlay_rel = os.path.relpath(overlay_abs, settings.MEDIA_ROOT)
+
+        # Persist on job
+        with transaction.atomic():
+            job = DetectionJob.objects.select_for_update().get(id=job_id)
+            result_payload = {
+                "success": True,
+                "unique_id": str(job_id),
+                "measurement_csv": csv_rel,
+                "measurement_overlay": overlay_rel,
+                "model": model_name,
+                "sidemm": sidemm,
+                "allowed_ids": sorted(list(allowed_ids)),
+                "timestamp": timezone.now().isoformat(),
+            }
+            job.result = json.dumps(result_payload)
+            job.status = "DONE"
+            job.progress = 100
+            job.save(update_fields=["result", "status", "progress"])
+
+        return job_id
+
+    except Exception as e:
+        with transaction.atomic():
+            try:
+                job = DetectionJob.objects.select_for_update().get(id=job_id)
+                job.status = "FAILED"
+                job.progress = 100
+                job.result = json.dumps({
+                    "success": False,
+                    "error": str(e),
+                    "trace": getattr(e, "__class__", type(e)).__name__,
+                })
                 job.save(update_fields=["status", "progress", "result"])
             except Exception:
                 pass

@@ -32,8 +32,28 @@ class BulkDetectRequestSerializer(serializers.Serializer):
     )
     confidence = serializers.FloatField(default=0.25, min_value=0.0, max_value=1.0)
     model = serializers.CharField(required=True)
+    # Optional kernel measurement parameters (used when model == "kernel")
+    sidemm = serializers.FloatField(required=False, default=40.0, min_value=0.1)
+    allowed_ids = serializers.CharField(required=False, default="425,100,201,310")
+    use_sam = serializers.BooleanField(required=False, default=False)
+    sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
+    sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")
     
 class BulkDetectionJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = BulkDetectionJob
         fields = ["id", "status", "created_at", "excel_file"]
+
+
+class KernelMeasureRequestSerializer(serializers.Serializer):
+    image = serializers.ImageField()
+    # The YOLO model key to use (from detect_models.MODEL_REGISTRY)
+    model = serializers.CharField(required=False, default="kernel")
+    # ArUco marker physical side length in millimeters
+    sidemm = serializers.FloatField(required=True, min_value=0.1)
+    # Allowed ArUco IDs, as a comma-separated string like "0,1,2,3"
+    allowed_ids = serializers.CharField(required=False, default="425,100,201,310")
+    # Optional SAM refinement
+    use_sam = serializers.BooleanField(required=False, default=False)
+    sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
+    sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")

@@ -1,27 +1,59 @@
 // One-time detection call. Slider filtering is client-side.
-// Resolve API base robustly (see lib/api.js for notes)
+// Resolve API base in order (see lib/api.js for details)
 const resolvedBase = (() => {
+  const envPort = (() => {
+    const raw = (import.meta.env?.VITE_API_PORT || "").trim();
+    if (!raw) return "";
+    return raw.replace(/^:/, "");
+  })();
+
+  const ensureProtocol = (urlStr) => {
+    if (/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(urlStr)) return urlStr;
+    return `https://${urlStr}`;
+  };
+
   const normalize = (urlStr) => {
     try {
-      const u = new URL(urlStr);
-      const host = (u.hostname === 'localhost') ? '127.0.0.1' : u.hostname;
-      const port = u.port || '8000';
-      return `${u.protocol}//${host}:${port}`.replace(/\/$/, "");
+      const u = new URL(ensureProtocol(urlStr));
+      const host = u.hostname;
+      let port = "";
+      if (["localhost", "127.0.0.1"].includes(host)) {
+        port = u.port ? `:${u.port}` : "";
+        if (!port && envPort) {
+          port = `:${envPort}`;
+        }
+      }
+      return `${u.protocol}//${host}${port}`.replace(/\/$/, "");
     } catch {
-      return urlStr.replace(/\/$/, "");
+      let cleaned = ensureProtocol(urlStr).replace(/\/$/, "");
+      if (envPort && !/:\d+$/.test(cleaned) && /localhost|127\.0\.0\.1/.test(cleaned)) {
+        cleaned = `${cleaned}:${envPort}`;
+      }
+      return cleaned;
     }
   };
 
-  const envBase = import.meta.env?.VITE_API_BASE?.trim();
+  const envBase = (import.meta.env?.VITE_API_BASE || import.meta.env?.VITE_API_URL || "").trim();
   if (envBase) return normalize(envBase);
   if (typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
-    const host = hostname === 'localhost' ? '127.0.0.1' : hostname;
-    return `${protocol}//${host}:8000`;
+    const { protocol, hostname, port } = window.location;
+    const host = hostname || 'localhost';
+    if (host === 'localhost') {
+      const localPort = envPort || "8000";
+      return `${protocol}//${host}:${localPort}`;
+    }
+    return `${protocol}//${host}`;
   }
-  return "http://127.0.0.1:8000";
+  const fallbackPort = envPort || "8000";
+  return `http://localhost:${fallbackPort}`;
 })();
 const BASE = resolvedBase;
+const API_TIMEOUT_MS = (() => {
+  const raw = (import.meta.env?.VITE_API_TIMEOUT_MS || "").trim();
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return 120_000; // 2 minutes default
+})();
 
 export async function detectOnce({ file, model, minConf = 0.05 }){
   const fd = new FormData();
@@ -30,7 +62,7 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
   fd.append("conf", String(minConf));
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = API_TIMEOUT_MS > 0 ? setTimeout(() => controller.abort(), API_TIMEOUT_MS) : null;
   let res;
   try {
     res = await fetch(`${BASE}/api/detect/basic/`, {
@@ -42,11 +74,13 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
     });
   } catch (e) {
     if (e.name === 'AbortError') {
-      throw new Error("Request timed out after 20s");
+      const secs = API_TIMEOUT_MS > 0 ? Math.round(API_TIMEOUT_MS / 1000) : null;
+      const pretty = secs ? `${secs}s` : `${API_TIMEOUT_MS}ms`;
+      throw new Error(`Request timed out after ${pretty}`);
     }
     throw e;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
   if(!res.ok){
     const msg = await res.text().catch(()=>"" );

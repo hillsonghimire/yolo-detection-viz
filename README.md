@@ -34,4 +34,18 @@ Uploaded images stored under `backend/media/uploads` (mounted to a volume).
 - If you change models, rebuild backend and worker: `docker compose build backend worker && docker compose up -d`.
 - If DB schema gets stuck, remove volumes: `docker compose down -v` (this wipes data).
 
+## Production Checklist
+- Copy `backend/.env.production.example` to `backend/.env.production` (or load the variables another way), generate a strong `SECRET_KEY`, and set real database and Redis credentials. For `wheatai.net` set `ALLOWED_HOSTS=wheatai.net,www.wheatai.net` and matching CSRF/CORS origins.
+- Copy `frontend/.env.production.example` to `frontend/.env.production`, keep `VITE_API_BASE=https://wheatai.net`, and adjust `VITE_API_TIMEOUT_MS` if detections run longer than 3 minutes.
+- Build the static bundle via Docker: `docker compose -f docker-compose-prod.yml --profile build run --rm frontend-build`. The generated files land in `frontend/dist/` and are served by the Nginx container.
+- Obtain a publicly trusted TLS certificate before enabling the HTTPS stack:  
+  `docker compose -f docker-compose-prod.yml up -d nginx` (serves with a self-signed cert) →  
+  `docker compose -f docker-compose-prod.yml --profile certbot run --rm certbot` (issues Let’s Encrypt cert via webroot) →  
+  `docker compose -f docker-compose-prod.yml restart nginx` (reloads the real cert). Subsequent renewals can reuse the same command.
+- Until the Let’s Encrypt certificate is in place the site will present the bundled self-signed certificate, so expect browsers to flag it as insecure during the first step above.
+- The production compose file runs Gunicorn behind Nginx; the Django port is only exposed internally so always call the API through `https://wheatai.net/api/...`.
+- Request timeouts are tuned for long detections (Nginx 300 s, frontend 180 s, Gunicorn `${GUNICORN_TIMEOUT:-300}`); raise these if your workloads need more time.
+- Redis/Postgres stay on the internal network. If you expose them elsewhere, add authentication and restrict access.
+- `RUN_MIGRATIONS=1` and `COLLECTSTATIC=1` are enabled by default; override them if you need a safer rollout strategy.
+
 Enjoy!

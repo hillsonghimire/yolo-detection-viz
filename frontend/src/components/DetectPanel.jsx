@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const WHEEL_STEP = 0.18;
+
 /**
  * Right panel (detection). Uses the SAME disp width/height as UploadPanel.
  * - Per-class colors (stable hash → HSL)
@@ -18,7 +20,8 @@ export default function DetectPanel({
   lineWidth = 2,
 }) {
   const canvasRef = useRef(null);
-  const [showLabels, setShowLabels] = useState(true);
+  const containerRef = useRef(null);
+  const [showLabels, setShowLabels] = useState(false);
   // legend now rendered as DOM panel on the right
   const legendRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -26,6 +29,17 @@ export default function DetectPanel({
   const drawSizeRef = useRef({ w: 0, h: 0 });
   const isPanningRef = useRef(false);
   const lastPtRef = useRef({ x: 0, y: 0 });
+  const imageRef = useRef(null);
+  const imageDimsRef = useRef({ w: 0, h: 0 });
+  const wheelTimeoutRef = useRef(null);
+  const fullscreenIcon = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="15 3 21 3 21 9"></polyline>
+      <line x1="14" y1="10" x2="21" y2="3"></line>
+      <polyline points="9 21 3 21 3 15"></polyline>
+      <line x1="10" y1="14" x2="3" y2="21"></line>
+    </svg>
+  );
 
   // derive a sensible base name for downloads
   const imgNameBase = (() => {
@@ -42,9 +56,15 @@ export default function DetectPanel({
     return "image";
   })();
 
+  const frameWidth = Math.max(200, Math.round(disp?.width || 420));
+  const frameHeight = Math.max(180, Math.round(disp?.height || Math.round(frameWidth * 0.75)));
+
   const getSourceDims = async () => {
     if (meta?.image_width && meta?.image_height) {
       return { w: meta.image_width, h: meta.image_height };
+    }
+    if (imageDimsRef.current.w && imageDimsRef.current.h) {
+      return imageDimsRef.current;
     }
     const probe = new Image();
     const dims = await new Promise((resolve) => {
@@ -52,32 +72,121 @@ export default function DetectPanel({
       probe.onerror = () => resolve({ w: disp?.width || 0, h: disp?.height || 0 });
       probe.src = imageURL;
     });
+    imageDimsRef.current = dims;
     return dims;
   };
 
-  const downloadPredImage = async () => {
-    const cvs = canvasRef.current;
-    if (!cvs) return;
+  const buildAnnotatedCanvas = () => {
+    const baseImg = imageRef.current;
+    const dims = imageDimsRef.current;
+    if (!baseImg || !dims.w || !dims.h) return null;
+
+    const out = document.createElement("canvas");
+    out.width = Math.round(dims.w);
+    out.height = Math.round(dims.h);
+    const ctx = out.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.drawImage(baseImg, 0, 0, out.width, out.height);
+    ctx.lineWidth = lineWidth;
+    const fontSize = Math.max(14, Math.round(out.width / 80));
+    ctx.font = `${fontSize}px ui-sans-serif, system-ui`;
+    ctx.textBaseline = "top";
+
+    for (const d of detections || []) {
+      const p = d.poly || d.polygon || d.xyxyxyxy || d.points;
+      if (!Array.isArray(p) || p.length !== 8) continue;
+
+      const key =
+        d.class != null ? String(d.class) :
+        d.class_id != null ? String(d.class_id) :
+        "obj";
+      const col = colorOf(key);
+
+      const pts = [
+        [p[0], p[1]],
+        [p[2], p[3]],
+        [p[4], p[5]],
+        [p[6], p[7]],
+      ];
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = col.fill;
+      ctx.strokeStyle = col.stroke;
+      ctx.fill();
+      ctx.stroke();
+
+      if (showLabels) {
+        const keyStr = d.class != null ? String(d.class) : d.class_id != null ? String(d.class_id) : "obj";
+        const name = displayName(keyStr);
+        const confPct = Math.round(((d.confidence ?? 0) * 1000)) / 10;
+        const label = `${name} ${confPct}%`;
+
+        const x = Math.min(...pts.map((pt) => pt[0]));
+        const y = Math.min(...pts.map((pt) => pt[1]));
+        const padX = Math.max(6, Math.round(fontSize * 0.35));
+        const padY = Math.max(4, Math.round(fontSize * 0.25));
+        const tw = ctx.measureText(label).width;
+        const th = fontSize + 2 * padY;
+
+        ctx.fillStyle = col.chip;
+        ctx.fillRect(x, y - th - 2, tw + 2 * padX, th);
+        ctx.strokeStyle = "rgba(0,0,0,0.25)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y - th - 2, tw + 2 * padX, th);
+
+        ctx.fillStyle = "#fff";
+        ctx.fillText(label, x + padX, y - th - 2 + padY);
+      }
+    }
+
+    return out;
+  };
+
+  const downloadPredImage = () => {
+    const out = buildAnnotatedCanvas();
+    if (!out) return;
     const name = `${imgNameBase}_pred.png`;
-    if (cvs.toBlob) {
-      cvs.toBlob((blob) => {
-        if (!blob) return;
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      });
-    } else {
-      const url = cvs.toDataURL("image/png");
+    const triggerDownload = (href) => {
       const a = document.createElement("a");
-      a.href = url;
+      a.href = href;
       a.download = name;
       document.body.appendChild(a);
       a.click();
       a.remove();
+    };
+
+    if (out.toBlob) {
+      out.toBlob((blob) => {
+        if (!blob) return;
+        const blobUrl = URL.createObjectURL(blob);
+        triggerDownload(blobUrl);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      });
+    } else {
+      triggerDownload(out.toDataURL("image/png"));
+    }
+  };
+
+  const openFullRes = () => {
+    const out = buildAnnotatedCanvas();
+    if (out) {
+      const dataUrl = out.toDataURL("image/png");
+      const newWin = window.open("", "_blank");
+      if (newWin && newWin.document) {
+        newWin.document.title = `${imgNameBase}_pred`;
+        newWin.document.body.style.margin = "0";
+        newWin.document.body.innerHTML = `<img src="${dataUrl}" alt="Annotated" style="width:100%;height:auto;display:block;background:#111" />`;
+      } else {
+        window.open(dataUrl, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+    if (imageURL) {
+      window.open(imageURL, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -206,49 +315,49 @@ export default function DetectPanel({
 
   useEffect(() => {
     const cvs = canvasRef.current;
-    if (!cvs || !imageURL || !disp?.width) return;
+    if (!imageURL) {
+      imageRef.current = null;
+      imageDimsRef.current = { w: 0, h: 0 };
+      return;
+    }
+    if (!cvs) return;
 
-    const { width: dispW, dpr = 1 } = disp;
-
+    const pixelRatio = disp?.dpr || window.devicePixelRatio || 1;
     const ctx = cvs.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const img = new Image();
     img.onload = () => {
-      // Fit image to available width; set canvas height to exact scaled image height.
-      const srcW = (meta?.image_width) || img.naturalWidth;
-      const srcH = (meta?.image_height) || img.naturalHeight;
-      // respect viewport height to avoid scrolling; adjust width as needed
-      const maxH = Math.max(200, Math.floor((window.innerHeight || 800) - 260));
-      const scaleW = srcW ? (dispW / srcW) : 1;
-      const scaleH = srcH ? (maxH / srcH) : 1;
-      const scale = Math.min(scaleW, scaleH);
+      const srcW = meta?.image_width || img.naturalWidth;
+      const srcH = meta?.image_height || img.naturalHeight;
+      if (!srcW || !srcH) return;
+      imageRef.current = img;
+      imageDimsRef.current = { w: srcW, h: srcH };
+
+      const scale = Math.min(frameWidth / srcW, frameHeight / srcH, 1);
       const drawW = Math.max(1, Math.round(srcW * scale));
       const drawH = Math.max(1, Math.round(srcH * scale));
+      const offsetX = Math.round((frameWidth - drawW) / 2);
+      const offsetY = Math.round((frameHeight - drawH) / 2);
 
-      // Resize canvas to the exact content size
-      cvs.width = Math.round(drawW * dpr);
-      cvs.height = Math.round(drawH * dpr);
-      cvs.style.width = drawW + "px";
-      cvs.style.height = drawH + "px";
+      cvs.width = Math.round(frameWidth * pixelRatio);
+      cvs.height = Math.round(frameHeight * pixelRatio);
+      cvs.style.width = `${frameWidth}px`;
+      cvs.style.height = `${frameHeight}px`;
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, drawW, drawH);
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      ctx.clearRect(0, 0, frameWidth, frameHeight);
 
-      // Save size for pan clamping and draw with pan/zoom
-      drawSizeRef.current = { w: drawW, h: drawH };
-      const offX = 0, offY = 0;
+      drawSizeRef.current = { w: frameWidth, h: frameHeight };
       ctx.save();
       ctx.translate(offset.x, offset.y);
       ctx.scale(zoom, zoom);
-      ctx.drawImage(img, offX, offY, drawW, drawH);
+      ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
 
       ctx.lineWidth = lineWidth;
       const fontSize = 12;
       ctx.font = `${fontSize}px ui-sans-serif, system-ui`;
       ctx.textBaseline = "top";
 
-      // ---- draw detections per class color
       for (const d of detections || []) {
         const p = d.poly || d.polygon || d.xyxyxyxy || d.points;
         if (!Array.isArray(p) || p.length !== 8) continue;
@@ -260,10 +369,10 @@ export default function DetectPanel({
         const col = colorOf(key);
 
         const pts = [
-          [p[0] * scale + offX, p[1] * scale + offY],
-          [p[2] * scale + offX, p[3] * scale + offY],
-          [p[4] * scale + offX, p[5] * scale + offY],
-          [p[6] * scale + offX, p[7] * scale + offY],
+          [p[0] * scale + offsetX, p[1] * scale + offsetY],
+          [p[2] * scale + offsetX, p[3] * scale + offsetY],
+          [p[4] * scale + offsetX, p[5] * scale + offsetY],
+          [p[6] * scale + offsetX, p[7] * scale + offsetY],
         ];
 
         ctx.beginPath();
@@ -283,15 +392,13 @@ export default function DetectPanel({
 
           const x = Math.min(...pts.map((pt) => pt[0]));
           const y = Math.min(...pts.map((pt) => pt[1]));
-          const padX = 5,
-            padY = 3;
+          const padX = 5;
+          const padY = 3;
           const tw = ctx.measureText(label).width;
           const th = fontSize + 2 * padY;
 
-          // label chip with class color
           ctx.fillStyle = col.chip;
           ctx.fillRect(x, y - th - 2, tw + 2 * padX, th);
-          // thin dark outline for readability
           ctx.strokeStyle = "rgba(0,0,0,0.25)";
           ctx.lineWidth = 1;
           ctx.strokeRect(x, y - th - 2, tw + 2 * padX, th);
@@ -301,11 +408,10 @@ export default function DetectPanel({
         }
       }
 
-      // legend moved to DOM; no canvas legend drawing
       ctx.restore();
     };
     img.src = imageURL;
-  }, [imageURL, detections, meta, disp, showLabels, lineWidth, classList, colorOf, zoom, offset]);
+  }, [imageURL, detections, meta, frameWidth, frameHeight, disp, showLabels, lineWidth, colorOf, zoom, offset]);
 
   // legend size not needed
 
@@ -359,29 +465,72 @@ export default function DetectPanel({
     };
   }, [zoom]);
 
+  // Wheel to zoom (like kernel measurement)
+  useEffect(() => {
+    const el = containerRef.current || canvasRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = e.deltaY > 0 ? -1 : 1;
+      setZoom((z) => Math.min(5, Math.max(1, z + dir * WHEEL_STEP)));
+      if (wheelTimeoutRef.current) {
+        clearTimeout(wheelTimeoutRef.current);
+      }
+      wheelTimeoutRef.current = setTimeout(() => {
+        wheelTimeoutRef.current = null;
+      }, 200);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+    };
+  }, []);
+
   return (
     <div className="panel">
       {imageURL ? (
-        <div className="canvas-wrap">
+        <div
+          className="canvas-wrap"
+          ref={containerRef}
+          style={{ width: frameWidth, height: frameHeight }}
+        >
           <canvas ref={canvasRef} />
+          <div className="map-controls" style={{ left: 12, top: 12 }}>
+            <button className="icon-btn" type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(10, z + 0.15))}>+
+            </button>
+            <button className="icon-btn" type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z - 0.15))}>-
+            </button>
+            <button className="icon-btn" type="button" title="Reset view" aria-label="Reset view" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>⟲</button>
+          </div>
+          <div className="map-downloads" style={{ right: 12, top: 12 }}>
+            <button
+              className="icon-btn"
+              type="button"
+              onClick={downloadPredImage}
+              title="Download annotated image"
+              aria-label="Download annotated image"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
+              </svg>
+            </button>
+            <button className="icon-btn" type="button" title="Open full resolution" aria-label="Open full resolution" onClick={openFullRes}>{fullscreenIcon}</button>
+          </div>
+          <div className="zoom-meter">{zoom.toFixed(2)}x</div>
         </div>
       ) : (
         <div
           className="detect-placeholder"
           style={{
-            width: Math.round((disp?.width || 360)),
-            height: Math.round((((disp?.width || 360) * (640 / 360)) / 2)),
+            width: frameWidth,
+            height: frameHeight,
           }}
         >
           <div className="placeholder-text">Load an image to see detections</div>
-        </div>
-      )}
-      {imageURL && (
-        <div className="zoom-toolbar" style={{ left: 10, top: 10 }}>
-          <button className="icon-btn" type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z + 0.25))}>+
-          </button>
-          <button className="icon-btn" type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z - 0.25))}>–
-          </button>
         </div>
       )}
       {imageURL && (
@@ -412,19 +561,6 @@ export default function DetectPanel({
           </div>
           <div className="legend-footer">
             <div className="legend-actions">
-              <button
-                className="icon-btn"
-                type="button"
-                onClick={downloadPredImage}
-                title="Download annotated image (.png)"
-                aria-label="Download annotated image"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
-                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                  <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
-                </svg>
-              </button>
               <button
                 className="icon-btn"
                 type="button"

@@ -19,6 +19,9 @@ MODEL_REGISTRY: Dict[str, str] = {
     "spikelet":  os.getenv("MODEL_SPIKELET",  _fallback("spikelet.pt")),
     "fhb":       os.getenv("MODEL_FHB",       _fallback("fhb.pt")),
     "fdk":       os.getenv("MODEL_FDK",       _fallback("fdk.pt")),
+    # Kernel size measurement typically uses a kernel/seed YOLO-OBB model
+    # Configure via env MODEL_KERNEL or place kernel.pt under detections/models/
+    "kernel":    os.getenv("MODEL_KERNEL",    _fallback("kernel.pt")),
 }
 
 @lru_cache(maxsize=None)
@@ -27,7 +30,18 @@ def load_model(model_name: str) -> YOLO:
         raise ValueError(f"Unknown model '{model_name}'. Valid: {list(MODEL_REGISTRY)}")
     path = MODEL_REGISTRY[model_name]
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Model weights not found: {path}")
+        # Provide targeted fallbacks for the kernel model name
+        if model_name == "kernel":
+            candidates = [
+                os.path.join(APP_DIR, "models", "kernel.pt"),  # backend/detections/models/kernel.pt
+                "/app/models/kernel.pt",                         # backend/models/kernel.pt (within container)
+            ]
+            for p in candidates:
+                if os.path.exists(p):
+                    path = p
+                    break
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model weights not found: {path}")
     return YOLO(path)
 
 # ------------ helpers to coerce shapes safely ------------

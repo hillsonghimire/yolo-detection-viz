@@ -56,6 +56,15 @@ const samples = {
     "/samples/fdk/fdk9.JPG",
     // "/samples/fdk/fdk10.JPG",
   ],
+    kernel: [
+    "/samples/kernel/kernel1.jpg",
+    "/samples/kernel/kernel2.jpg",
+    "/samples/kernel/kernel3.jpg",
+    "/samples/kernel/kernel4.jpg",
+    "/samples/kernel/kernel5.jpg",
+    "/samples/kernel/kernel6.jpg",
+    "/samples/kernel/kernel7.jpg",
+  ],
 };
 
 export default function SampleGallery({ model, onPick }){

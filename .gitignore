@@ -110,6 +110,16 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+backend/.env
+backend/.env.local
+backend/.env.development
+backend/.env.production
+backend/.env.test
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+frontend/.env.test
 
 # Spyder project settings
 .spyderproject
@@ -185,6 +195,15 @@ jspm_packages/
 
 # Optional eslint cache
 .eslintcache
+
+# Frontend build artifacts (generated via frontend-build service)
+frontend/dist/
+
+# Let’s Encrypt state (managed via Docker volumes when running in production)
+nginx/certs/
+
+# Deployment env files
+.env.prod
 
 # Microbundle cache
 .rpt2_cache/

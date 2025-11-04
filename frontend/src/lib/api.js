@@ -1,31 +1,62 @@
 // One-time detection call. Slider filtering is client-side.
-// Resolve API base robustly:
-// 1) Prefer explicit VITE_API_BASE
-// 2) Otherwise, assume backend is on same host at port 8000
-//    (works when accessing from another device and avoids hardcoded localhost)
-// 3) Fallback to localhost:8000
+// Resolve API base in order:
+// 1) Explicit VITE_API_BASE / VITE_API_URL (set via .env)
+// 2) Browser origin with optional VITE_API_PORT override for localhost
+// 3) Fallback to http://localhost:8000 for non-browser contexts
 const resolvedBase = (() => {
+  const envPort = (() => {
+    const raw = (import.meta.env?.VITE_API_PORT || "").trim();
+    if (!raw) return "";
+    return raw.replace(/^:/, "");
+  })();
+
+  const ensureProtocol = (urlStr) => {
+    if (/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(urlStr)) return urlStr;
+    return `https://${urlStr}`;
+  };
+
   const normalize = (urlStr) => {
     try {
-      const u = new URL(urlStr);
-      const host = (u.hostname === 'localhost') ? '127.0.0.1' : u.hostname;
-      const port = u.port || '8000';
-      return `${u.protocol}//${host}:${port}`.replace(/\/$/, "");
+      const u = new URL(ensureProtocol(urlStr));
+      const host = u.hostname;
+      let port = "";
+      if (["localhost", "127.0.0.1"].includes(host)) {
+        port = u.port ? `:${u.port}` : "";
+        if (!port && envPort) {
+          port = `:${envPort}`;
+        }
+      }
+      return `${u.protocol}//${host}${port}`.replace(/\/$/, "");
     } catch {
-      return urlStr.replace(/\/$/, "");
+      let cleaned = ensureProtocol(urlStr).replace(/\/$/, "");
+      if (envPort && !/:\d+$/.test(cleaned) && /localhost|127\.0\.0\.1/.test(cleaned)) {
+        cleaned = `${cleaned}:${envPort}`;
+      }
+      return cleaned;
     }
   };
 
-  const envBase = import.meta.env?.VITE_API_BASE?.trim();
+  const envBase = (import.meta.env?.VITE_API_BASE || import.meta.env?.VITE_API_URL || "").trim();
   if (envBase) return normalize(envBase);
   if (typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
-    const host = hostname === 'localhost' ? '127.0.0.1' : hostname;
-    return `${protocol}//${host}:8000`;
+    const { protocol, hostname, port } = window.location;
+    const host = hostname || 'localhost';
+    if (host === 'localhost') {
+      const localPort = envPort || "8000";
+      return `${protocol}//${host}:${localPort}`;
+    }
+    return `${protocol}//${host}`;
   }
-  return "http://127.0.0.1:8000";
+  const fallbackPort = envPort || "8000";
+  return `http://localhost:${fallbackPort}`;
 })();
 const BASE = resolvedBase;
+const API_TIMEOUT_MS = (() => {
+  const raw = (import.meta.env?.VITE_API_TIMEOUT_MS || "").trim();
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return 120_000; // 2 minutes default
+})();
 
 export async function detectOnce({ file, model, minConf = 0.05 }){
   const fd = new FormData();
@@ -34,7 +65,7 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
   fd.append("conf", String(minConf));
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = API_TIMEOUT_MS > 0 ? setTimeout(() => controller.abort(), API_TIMEOUT_MS) : null;
   let res;
   try {
     res = await fetch(`${BASE}/api/detect/basic/`, {
@@ -46,11 +77,13 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
     });
   } catch (e) {
     if (e.name === 'AbortError') {
-      throw new Error("Request timed out after 20s");
+      const secs = API_TIMEOUT_MS > 0 ? Math.round(API_TIMEOUT_MS / 1000) : null;
+      const pretty = secs ? `${secs}s` : `${API_TIMEOUT_MS}ms`;
+      throw new Error(`Request timed out after ${pretty}`);
     }
     throw e;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
   if(!res.ok){
     const msg = await res.text().catch(()=>"" );
@@ -60,7 +93,7 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
 }
 
 // ---- Bulk processing APIs ----
-export async function submitBulk({ files, model, confidence = 0.25 }) {
+export async function submitBulk({ files, model, confidence = 0.25, kernelParams = null }) {
   const fd = new FormData();
   const valid = [];
   for (const f of files || []) {
@@ -74,6 +107,19 @@ export async function submitBulk({ files, model, confidence = 0.25 }) {
   }
   fd.append("model", model);
   fd.append("confidence", String(confidence));
+  if ((model || "").toLowerCase() === "kernel") {
+    const kp = kernelParams || {};
+    const sidemm = kp.sidemm ?? 40;
+    const allowed = kp.allowedIds ?? kp.allowed_ids ?? "425,100,201,310";
+    const useSam = !!kp.useSam;
+    const samCheckpoint = kp.samCheckpoint || kp.sam_checkpoint || "";
+    const samModelType = kp.samModelType || kp.sam_model_type || "vit_b";
+    fd.append("sidemm", String(sidemm));
+    fd.append("allowed_ids", String(allowed));
+    fd.append("use_sam", useSam ? "true" : "false");
+    fd.append("sam_checkpoint", samCheckpoint);
+    fd.append("sam_model_type", samModelType);
+  }
   const res = await fetch(`${BASE}/api/detect/bulk/`, {
     method: "POST",
     body: fd,
@@ -126,4 +172,32 @@ export function downloadUrl(kind, fname) {
   if (kind === 'labels') return `${base}/download/${fname}`;
   if (kind === 'image') return `${base}/download/image/${fname}`;
   throw new Error("unknown download kind");
+}
+
+// ---- Kernel measurement APIs ----
+export async function measureKernel({ file, model = 'kernel', sidemm, allowedIds = '0,1,2,3', useSam = false, samCheckpoint = '', samModelType = 'vit_b' }){
+  const fd = new FormData();
+  fd.append('image', file);
+  fd.append('model', model);
+  fd.append('sidemm', String(sidemm));
+  fd.append('allowed_ids', String(allowedIds));
+  fd.append('use_sam', String(Boolean(useSam)));
+  if (samCheckpoint) fd.append('sam_checkpoint', samCheckpoint);
+  fd.append('sam_model_type', samModelType);
+  const res = await fetch(`${BASE}/api/measure/kernel/`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json(); // { unique_id }
+}
+
+export async function getJob(jobId){
+  const res = await fetch(`${BASE}/api/jobs/${jobId}/`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export function downloadMeasure(kind, fname){
+  const base = `${BASE}/api/download/measure`;
+  if (kind === 'image') return `${base}/image/${fname}`;
+  if (kind === 'csv') return `${base}/csv/${fname}`;
+  throw new Error('unknown measure download kind');
 }

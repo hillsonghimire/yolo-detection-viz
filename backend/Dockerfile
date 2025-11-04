@@ -12,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # - netcat-openbsd & postgresql-client: for entrypoint wait (pg_isready/nc)
 # - build-essential libpq-dev: compile psycopg2 if needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc libpq-dev curl \
+    build-essential gcc libpq-dev curl git ca-certificates \
     libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
     ffmpeg \
     netcat-openbsd postgresql-client \

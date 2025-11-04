@@ -3,9 +3,38 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name, default=None):
+    raw = os.environ.get(name)
+    if raw:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    if default is None:
+        return []
+    if isinstance(default, (list, tuple, set)):
+        return [str(item).strip() for item in default if str(item).strip()]
+    return [item.strip() for item in str(default).split(",") if item.strip()]
+
+
+def env_int(name, default=0):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
-DEBUG = os.environ.get("DEBUG", "1") == "1"
-ALLOWED_HOSTS = ["*"]
+DEBUG = env_bool("DEBUG", True)
+_allowed_hosts = env_list("ALLOWED_HOSTS", ["*"])
+ALLOWED_HOSTS = _allowed_hosts or ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -83,8 +112,22 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL", "1") == "1"
+# CORS / CSRF
+CSRF_TRUSTED_ORIGINS = [origin.rstrip("/") for origin in env_list("CSRF_TRUSTED_ORIGINS")]
+CORS_ALLOWED_ORIGINS = [origin.rstrip("/") for origin in env_list("CORS_ALLOWED_ORIGINS")]
+CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL", not CORS_ALLOWED_ORIGINS)
+if CORS_ALLOWED_ORIGINS:
+    CORS_ALLOW_ALL_ORIGINS = False
+
+# HTTPS hardening (tunable via environment)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 0 if DEBUG else 3600)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", False)
+SECURE_REFERRER_POLICY = os.environ.get("SECURE_REFERRER_POLICY", "same-origin")
 
 # Celery
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")

@@ -102,6 +102,7 @@ export default function App() {
   const fallbackHeight = Math.round(fallbackWidth * 0.75);
   const placeholderWidth = Math.round(disp?.width || fallbackWidth);
   const placeholderHeight = Math.round(disp?.height || fallbackHeight);
+  const kernelFrameHeight = Math.max(240, Math.round((placeholderHeight || fallbackHeight) * 1.5));
 
   const setNewFile = (f) => {
     setFile(f || null);
@@ -293,7 +294,7 @@ export default function App() {
                   src={kmOverlay || imageURL}
                   placeholder={"Upload an image to preview it here."}
                   frameWidth={placeholderWidth}
-                  frameHeight={placeholderHeight}
+                  frameHeight={kernelFrameHeight}
                   downloads={[
                     ...(kmCSV ? [{
                       href: kmCSV,
@@ -324,7 +325,7 @@ export default function App() {
               ) : (
                 <div
                   className="detect-placeholder"
-                  style={{ width: placeholderWidth, height: placeholderHeight }}
+                  style={{ width: placeholderWidth, height: kernelFrameHeight }}
                 >
                   <div className="placeholder-text">Upload an image to preview it here.</div>
                 </div>

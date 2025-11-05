@@ -41,6 +41,14 @@ export default function App() {
     try { localStorage.setItem('theme', theme); } catch {}
   }, [theme]);
 
+  useEffect(() => {
+    const href = `${import.meta.env.BASE_URL}background.jpg`;
+    document.body.style.setProperty('--app-background-image', `url("${href}")`);
+    return () => {
+      document.body.style.removeProperty('--app-background-image');
+    };
+  }, []);
+
   // ——— helpers to keep class colors consistent with DetectPanel ———
   const hash = (s) => {
     let h = 2166136261 >>> 0;

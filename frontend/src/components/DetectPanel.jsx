@@ -22,6 +22,7 @@ export default function DetectPanel({
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [showLabels, setShowLabels] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   // legend now rendered as DOM panel on the right
   const legendRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -57,7 +58,8 @@ export default function DetectPanel({
   })();
 
   const frameWidth = Math.max(200, Math.round(disp?.width || 420));
-  const frameHeight = Math.max(180, Math.round(disp?.height || Math.round(frameWidth * 0.75)));
+  const baseHeight = disp?.height || Math.round(frameWidth * 0.75);
+  const frameHeight = Math.max(240, Math.round(baseHeight * 1.5));
 
   const getSourceDims = async () => {
     if (meta?.image_width && meta?.image_height) {
@@ -488,6 +490,12 @@ export default function DetectPanel({
     };
   }, []);
 
+  useEffect(() => {
+    if (!imageURL) {
+      setLegendOpen(false);
+    }
+  }, [imageURL]);
+
   return (
     <div className="panel">
       {imageURL ? (
@@ -533,10 +541,28 @@ export default function DetectPanel({
           <div className="placeholder-text">Load an image to see detections</div>
         </div>
       )}
-      {imageURL && (
+      {imageURL && !legendOpen && (
+        <button
+          type="button"
+          className="legend-toggle"
+          style={{ top: 12, right: 12 }}
+          onClick={() => setLegendOpen(true)}
+        >
+          Legend
+        </button>
+      )}
+      {imageURL && legendOpen && (
         <div ref={legendRef} className="legend-panel" style={{ right: 10, top: 10 }}>
           <div className="legend-head">
             <div className="legend-title">Legend</div>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Hide legend"
+              onClick={() => setLegendOpen(false)}
+            >
+              ×
+            </button>
           </div>
           <div className="legend-items">
             {classList.map((it) => {

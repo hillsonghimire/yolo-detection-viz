@@ -196,7 +196,7 @@ export default function App() {
         <div className="header-actions">
           <a
             className="contact-link"
-            href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A"
+            href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
             aria-label="Email WheatAI team"
           >
             <span className="contact-icon" aria-hidden="true">✉</span>

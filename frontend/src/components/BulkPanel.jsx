@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { submitBulk, listBulkJobs, listJobs, downloadUrl, downloadMeasure } from "../lib/api.js";
 
 export default function BulkPanel({ model, onExit, kernelParams, setKernelParams }) {
@@ -10,6 +11,8 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
   const [jobs, setJobs] = useState([]);
   const [conf, setConf] = useState(0.25);
   const inputRef = useRef(null);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
   const kp = kernelParams || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
   const applyKernelUpdate = (updater) => {
     if (typeof setKernelParams === "function") {
@@ -59,6 +62,35 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
       if (fetched.length) onPick(fetched);
     }
   };
+
+  const triggerFileDialog = () => {
+    if (submitting) return;
+    inputRef.current?.click();
+  };
+
+  const handleChooseClick = () => {
+    if (submitting) return;
+    if (disclaimerAccepted) {
+      triggerFileDialog();
+    } else {
+      setShowDisclaimer(true);
+    }
+  };
+
+  const handleAcceptDisclaimer = () => {
+    if (submitting) return;
+    setDisclaimerAccepted(true);
+    setShowDisclaimer(false);
+    triggerFileDialog();
+  };
+
+  const handleDeclineDisclaimer = () => {
+    setShowDisclaimer(false);
+    setDisclaimerAccepted(false);
+  };
+
+  const disclaimerText = "Please do not upload or include any sensitive, confidential, or personal information in your submission. All tasks and files submitted will be publicly accessible. Ensure that any data you provide is appropriate for public sharing and does not contain private credentials, proprietary content, or identifying details.";
+  const canPortal = typeof document !== "undefined";
 
   const refresh = async () => {
     try {
@@ -136,13 +168,46 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
 
       <div className={"panel" + (drag ? " dragover" : "")}
         onDragEnter={onDragEnter} onDragOver={prevent} onDragLeave={onDragLeave} onDrop={onDrop}
-        style={{ minHeight: 180 }}
+        style={{ minHeight: 180, overflow: "visible" }}
       >
         <div className="drop-hint"></div>
         <div style={{ textAlign: "center", padding: 20, width: "100%" }}>
           <p style={{ marginTop: 0, color: 'var(--fg)' }}>Drop images here or select files</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-            <button className="btn" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Choose Files</button>
+            <div className="disclaimer-wrap">
+              <button className="btn" type="button" onClick={handleChooseClick} disabled={submitting}>
+                Choose Files
+              </button>
+              {showDisclaimer && !submitting && canPortal && createPortal(
+                <div className="disclaimer-overlay" role="alertdialog" aria-modal="true">
+                  <div className="disclaimer-dialog">
+                    <p className="disclaimer-text">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 2a1 1 0 0 1 .87.49l10 17a1 1 0 0 1-.87 1.51H2a1 1 0 0 1-.87-1.51l10-17A1 1 0 0 1 12 2zm0 3.54L4.62 19h14.76L12 5.54zM11 10h2v5h-2zm0 6h2v2h-2z"/>
+                      </svg>
+                      {disclaimerText}
+                    </p>
+                    <div className="disclaimer-actions">
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={handleAcceptDisclaimer}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        className="btn outline"
+                        onClick={handleDeclineDisclaimer}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+            </div>
             <button className="btn" type="button" onClick={onSubmit} disabled={!files.length || submitting}>
               {submitting ? "Submitting..." : `Submit Job (${files.length})`}
             </button>

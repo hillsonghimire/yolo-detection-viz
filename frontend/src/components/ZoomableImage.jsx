@@ -149,7 +149,7 @@ export default function ZoomableImage({ src, placeholder = "", frameWidth = 420,
         onMouseLeave={onUp}
         style={{
           borderRadius: 6,
-          background: "var(--canvas-bg)",
+          background: "transparent",
           width: "100%",
           display: "block",
           cursor: img ? "grab" : "default",

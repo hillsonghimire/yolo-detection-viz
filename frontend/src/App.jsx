@@ -175,13 +175,28 @@ export default function App() {
   return (
     <div className="container">
       <div className="header">
-        <img className="app-logo" src="/logo/Logo_1.png" alt="WheatAI logo" />
-        <h1 className="visually-hidden">WheatAI</h1>
-        {/* <a href="#" className="small">Detailed Operation Guide</a> */}
-
-        <div className="theme-toggle">
-          <button className="theme-btn" type="button" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">
-            {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
+        <div className="brand">
+          <img className="app-logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
+          <div className="brand-copy">
+            <span className="brand-name">WheatAI</span>
+            <span className="brand-tagline">Precision crop diagnostics</span>
+          </div>
+        </div>
+        <div className="header-actions">
+          <a
+            className="contact-link"
+            href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A"
+          >
+            Contact us
+          </a>
+          <button
+            className="theme-btn"
+            type="button"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            aria-label="Toggle theme"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? "☾" : "☀"}
           </button>
         </div>
       </div>
@@ -189,10 +204,26 @@ export default function App() {
 
       <div className="topbar">
         <ModelSelector model={model} setModel={setModel} />
-        <div className="controls">
-          <button className="btn" type="button" onClick={() => setBulkMode((v) => !v)}>
-            {bulkMode ? "Single Image Mode" : "Bulk Processing"}
-          </button>
+        <div className="mode-toggle">
+          <span className="mode-toggle__label small">Processing Mode</span>
+          <div className="mode-toggle__options" role="group" aria-label="Choose processing mode">
+            <button
+              type="button"
+              className={`mode-toggle__option ${!bulkMode ? "active" : ""}`}
+              onClick={() => setBulkMode(false)}
+              aria-pressed={!bulkMode}
+            >
+              Single
+            </button>
+            <button
+              type="button"
+              className={`mode-toggle__option ${bulkMode ? "active" : ""}`}
+              onClick={() => setBulkMode(true)}
+              aria-pressed={bulkMode}
+            >
+              Bulk
+            </button>
+          </div>
         </div>
         {/* legend chips removed to avoid duplication; stats now inside detection panel */}
       </div>

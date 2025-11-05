@@ -102,18 +102,19 @@ services:
   frontend-build:
     build: ./frontend
     working_dir: /app
-    entrypoint: ["sh","-lc"]
-    command: "npm install && npm run build"
+    command: ["sh","-lc","npm install && npm run build"]
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    profiles: ["build"]
+    restart: "no"
 
   nginx:
     image: nginx:alpine
     depends_on:
       backend:
         condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
     entrypoint: ["/etc/nginx/docker-entrypoint.sh"]
     ports:
       - "80:80"

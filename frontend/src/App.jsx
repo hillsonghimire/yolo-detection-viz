@@ -176,18 +176,22 @@ export default function App() {
     <div className="container">
       <div className="header">
         <div className="brand">
-          <img className="app-logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
+          <a className="brand-logo" href="https://wheatai.net" aria-label="Go to WheatAI homepage">
+            <img className="app-logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
+          </a>
           <div className="brand-copy">
             <span className="brand-name">WheatAI</span>
-            <span className="brand-tagline">Precision crop diagnostics</span>
+            <span className="brand-tagline">AI-based wheat assessment</span>
           </div>
         </div>
         <div className="header-actions">
           <a
             className="contact-link"
             href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A"
+            aria-label="Email WheatAI team"
           >
-            Contact us
+            <span className="contact-icon" aria-hidden="true">✉</span>
+            <span className="contact-text">Contact us</span>
           </a>
           <button
             className="theme-btn"

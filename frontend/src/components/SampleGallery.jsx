@@ -57,13 +57,13 @@ const samples = {
     // "/samples/fdk/fdk10.JPG",
   ],
     kernel: [
-    "/samples/kernel/kernel1.jpg",
-    "/samples/kernel/kernel2.jpg",
-    "/samples/kernel/kernel3.jpg",
+    "/samples/kernel/kernel10.JPG",
+    "/samples/kernel/kernel12.JPG",
+    "/samples/kernel/kernel9.JPG",
     "/samples/kernel/kernel4.jpg",
-    "/samples/kernel/kernel5.jpg",
+    "/samples/kernel/kernel12.JPG",
     "/samples/kernel/kernel6.jpg",
-    "/samples/kernel/kernel7.jpg",
+    "/samples/kernel/kernel1.jpg",
   ],
 };
 

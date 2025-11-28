@@ -81,7 +81,10 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
     if (submitting) return;
     setDisclaimerAccepted(true);
     setShowDisclaimer(false);
-    triggerFileDialog();
+    // Defer launching picker until modal unmounts to avoid overlay flashes
+    setTimeout(() => {
+      triggerFileDialog();
+    }, 0);
   };
 
   const handleDeclineDisclaimer = () => {

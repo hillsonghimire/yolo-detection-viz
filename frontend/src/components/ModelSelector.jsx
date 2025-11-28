@@ -1,7 +1,7 @@
 export default function ModelSelector({ model, setModel }){
   return (
     <div className="model-select">
-      <span className="model-select__label small">Task / Model</span>
+      <span className="model-select__label small">Function / Model</span>
       <div className="model-select__control">
         <select
           className="model-select__input"

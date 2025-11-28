@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import json
+import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,6 +19,12 @@ from .models import DetectionJob
 from .inference import run_detection, _image_dims
 from django.utils import timezone
 from . import kernel_size_measure as ksm
+from .kernel_cache import (
+    normalize_allowed_ids_csv,
+    compute_kernel_params_hash,
+    load_kernel_cache,
+    store_kernel_cache,
+)
 
 
 # New helper function to get an axis-aligned bounding box from a polygon
@@ -227,7 +234,9 @@ def run_kernel_measurement(self,
                            allowed_ids_csv: str,
                            use_sam: bool = False,
                            sam_checkpoint: str = "",
-                           sam_model_type: str = "vit_b") -> str:
+                           sam_model_type: str = "vit_b",
+                           image_digest: str = "",
+                           params_hash: str = "") -> str:
     """
     Celery task to run kernel size measurement using YOLO-OBB detections and ArUco markers.
     - Runs detection with the specified model
@@ -237,6 +246,39 @@ def run_kernel_measurement(self,
     Returns the job_id on success.
     """
     try:
+        allowed_ids_csv_norm = normalize_allowed_ids_csv(allowed_ids_csv)
+        params_hash_local, descriptor = compute_kernel_params_hash(
+            model_name,
+            sidemm,
+            allowed_ids_csv_norm,
+            use_sam,
+            sam_checkpoint,
+            sam_model_type,
+        )
+
+        params_hash_final = params_hash or params_hash_local
+        if params_hash_final != params_hash_local:
+            params_hash_final = params_hash_local
+
+        image_digest_final = image_digest
+        if not image_digest_final:
+            try:
+                with open(image_path, "rb") as fh:
+                    image_digest_final = hashlib.sha256(fh.read()).hexdigest()
+            except Exception:
+                image_digest_final = ""
+
+        if image_digest_final and params_hash_final:
+            cached_payload = load_kernel_cache(image_digest_final, params_hash_final)
+            if cached_payload is not None:
+                with transaction.atomic():
+                    job = DetectionJob.objects.select_for_update().get(id=job_id)
+                    job.result = json.dumps(cached_payload)
+                    job.status = "DONE"
+                    job.progress = 100
+                    job.save(update_fields=["result", "status", "progress"])
+                return job_id
+
         with transaction.atomic():
             job = DetectionJob.objects.select_for_update().get(id=job_id)
             job.status = "PROCESSING"
@@ -252,7 +294,7 @@ def run_kernel_measurement(self,
         # Run measurement
         allowed_ids = set()
         try:
-            allowed_ids = set(int(x.strip()) for x in (allowed_ids_csv or "").split(",") if x.strip() != "")
+            allowed_ids = set(int(x.strip()) for x in (allowed_ids_csv_norm or "").split(",") if x.strip())
         except Exception:
             allowed_ids = {425, 100, 201, 310}
         if not allowed_ids:
@@ -280,23 +322,34 @@ def run_kernel_measurement(self,
                 output_dir=out_dir_abs,
             )
 
-        # Build rel paths
         csv_rel = os.path.relpath(csv_abs, settings.MEDIA_ROOT)
         overlay_rel = os.path.relpath(overlay_abs, settings.MEDIA_ROOT)
 
-        # Persist on job
+        result_payload = {
+            "success": True,
+            "unique_id": str(job_id),
+            "measurement_csv": csv_rel,
+            "measurement_overlay": overlay_rel,
+            "model": model_name,
+            "sidemm": sidemm,
+            "allowed_ids": sorted(list(allowed_ids)),
+            "timestamp": timezone.now().isoformat(),
+        }
+
+        if image_digest_final and params_hash_final:
+            cached_out = store_kernel_cache(
+                image_digest_final,
+                params_hash_final,
+                descriptor,
+                result_payload,
+                csv_abs,
+                overlay_abs,
+            )
+            if cached_out is not None:
+                result_payload = cached_out
+
         with transaction.atomic():
             job = DetectionJob.objects.select_for_update().get(id=job_id)
-            result_payload = {
-                "success": True,
-                "unique_id": str(job_id),
-                "measurement_csv": csv_rel,
-                "measurement_overlay": overlay_rel,
-                "model": model_name,
-                "sidemm": sidemm,
-                "allowed_ids": sorted(list(allowed_ids)),
-                "timestamp": timezone.now().isoformat(),
-            }
             job.result = json.dumps(result_payload)
             job.status = "DONE"
             job.progress = 100

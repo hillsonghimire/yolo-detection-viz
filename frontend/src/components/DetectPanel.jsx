@@ -247,7 +247,14 @@ export default function DetectPanel({
   };
 
   // Map class key to the color/display key for legend alignment (no flips)
-  const colorKeyForModel = (k) => String(k);
+  const colorKeyForModel = (k) => {
+    const s = String(k);
+    if (model === 'fdk') {
+      if (s === '0') return '1';
+      if (s === '1') return '0';
+    }
+    return s;
+  };
 
   const { classList, colorOf, counts } = useMemo(() => {
     const seen = new Map(); // key -> {name, color}
@@ -271,7 +278,7 @@ export default function DetectPanel({
         chip: `hsl(${h} ${s}% ${l}%)`,
       };
     };
-    const colorKey = (k) => String(k);
+    const colorKey = (k) => colorKeyForModel(k);
     const legendLabel = (k) => {
       if (model === 'fdk') {
         const s = String(k);

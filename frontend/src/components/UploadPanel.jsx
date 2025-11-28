@@ -70,7 +70,10 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
     if (busy) return;
     setDisclaimerAccepted(true);
     setShowDisclaimer(false);
-    triggerFileDialog();
+    // Defer opening the file picker until after the overlay unmounts
+    setTimeout(() => {
+      triggerFileDialog();
+    }, 0);
   };
 
   const handleDeclineDisclaimer = () => {

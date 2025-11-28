@@ -32,10 +32,12 @@ export default function App() {
   const [kmJobId, setKmJobId] = useState("");
   const [kmOverlay, setKmOverlay] = useState("");
   const [kmCSV, setKmCSV] = useState("");
+  const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
   const urlRef = useRef(null);
+  const bulkModeRef = useRef(bulkMode);
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     try { localStorage.setItem('theme', theme); } catch {}
@@ -116,6 +118,26 @@ export default function App() {
     setImageURL(urlRef.current || "");
   };
 
+  useEffect(() => {
+    bulkModeRef.current = bulkMode;
+  }, [bulkMode]);
+
+  useEffect(() => {
+    if (bulkModeRef.current) return;
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    setFile(null);
+    setImageURL("");
+    setRaw([]);
+    setMeta(null);
+    setMsg("");
+    setKmJobId("");
+    setKmOverlay("");
+    setKmCSV("");
+  }, [model]);
+
   const onRun = async () => {
     if (!file) return;
     setBusy(true);
@@ -162,10 +184,11 @@ export default function App() {
         // ONE request; later filtering is client-side
         const data = await detectOnce({ file, model, minConf: 0.05 });
         const dets = Array.isArray(data?.detections) ? data.detections : [];
+        const metaPayload = (data?.image_width && data?.image_height)
+          ? { image_width: data.image_width, image_height: data.image_height }
+          : null;
         setRaw(dets);
-        if (data?.image_width && data?.image_height) {
-          setMeta({ image_width: data.image_width, image_height: data.image_height });
-        }
+        setMeta(metaPayload);
       }
     } catch (e) {
       setMsg(String(e.message || e));
@@ -337,7 +360,15 @@ export default function App() {
               )}
             </div>
             <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', borderTop: '1px solid var(--line)' }}>
-              <label className="small">Side (mm)</label>
+              <a
+                className="btn outline"
+                href={arucoPdfHref}
+                download="A4-Aruco.pdf"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              >
+                🖨️ Download ArUco PDF
+              </a>
+              <label className="small">ArUco Physical Size (mm)</label>
               <input className="input" style={{ width: 90 }} type="number" min="0.1" step="0.1" value={km.sidemm}
                 onChange={(e)=> setKm(v=> ({...v, sidemm: parseFloat(e.target.value)||0}))} />
               <label className="small">ArUco IDs</label>

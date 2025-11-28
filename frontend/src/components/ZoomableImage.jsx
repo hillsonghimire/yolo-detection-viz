@@ -124,9 +124,73 @@ export default function ZoomableImage({ src, placeholder = "", frameWidth = 420,
     isPanningRef.current = false;
   };
 
-  const openFullRes = () => {
-    if (!src) return;
-    window.open(src, "_blank", "noopener,noreferrer");
+  const openFullRes = async () => {
+    if (!src) {
+      return;
+    }
+
+    const viewer = window.open("about:blank", "_blank");
+    if (!viewer) {
+      window.open(src, "_blank", "noopener,noreferrer");
+      return;
+    }
+    try {
+      viewer.opener = null;
+    } catch {}
+
+    const render = (href, revoke = false) => {
+      try {
+        viewer.document.open();
+        viewer.document.write(`<!doctype html>
+<title>Full Resolution</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  html,body{margin:0;background:#0b0b0b;display:flex;justify-content:center;align-items:center;height:100%;}
+  img{max-width:100%;height:auto;display:block;background:#111;}
+</style>
+<body>
+  <img src="${href}" alt="Full resolution preview" />
+</body>`);
+        viewer.document.close();
+      } catch {
+        viewer.location.href = href;
+      }
+
+      if (revoke && href.startsWith("blob:")) {
+        const cleanup = () => {
+          URL.revokeObjectURL(href);
+          viewer.removeEventListener("beforeunload", cleanup);
+        };
+        viewer.addEventListener("beforeunload", cleanup);
+        setTimeout(cleanup, 60000);
+      }
+    };
+
+    if (src.startsWith("data:") || src.startsWith("blob:")) {
+      render(src, false);
+      return;
+    }
+
+    // show loading placeholder while fetching
+    try {
+      viewer.document.open();
+      viewer.document.write("<!doctype html><title>Loading…</title><body style='margin:0;background:#0b0b0b;color:#fff;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100%;'>Loading full resolution…</body>");
+      viewer.document.close();
+    } catch {}
+
+    try {
+      const resp = await fetch(src, { mode: "cors", credentials: "include" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      render(blobUrl, true);
+    } catch (err) {
+      try {
+        viewer.location.href = src;
+      } catch {
+        window.open(src, "_blank", "noopener,noreferrer");
+      }
+    }
   };
 
   return (

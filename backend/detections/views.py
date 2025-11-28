@@ -1,12 +1,15 @@
 # detections/views.py
 import os
 import io
+import json
+import hashlib
 import tempfile
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from django.db import transaction
 from django.conf import settings
 from django.http import FileResponse, Http404
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404
 
@@ -23,6 +26,59 @@ from .models import DetectionJob, BulkDetectionJob
 from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer
 from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement
 from .detect_models import run_inference
+from .kernel_cache import (
+    normalize_allowed_ids_csv,
+    compute_kernel_params_hash,
+    load_kernel_cache,
+)
+
+
+_CACHE_VERSION = 1
+_CACHE_ROOT = os.path.join(settings.MEDIA_ROOT, "cache", "basic")
+
+
+def _cache_conf_key(conf: float) -> str:
+    value = f"{float(conf):.6f}"
+    value = value.rstrip("0").rstrip(".")
+    return value or "0"
+
+
+def _cache_path(model_name: str, conf: float, digest: str) -> str:
+    safe_model = "".join(c if c.isalnum() or c in {"-", "_", "."} else "_" for c in str(model_name or "default"))
+    return os.path.join(_CACHE_ROOT, safe_model, f"{_cache_conf_key(conf)}-{digest}.json")
+
+
+def _load_cached_detection(model_name: str, conf: float, digest: str) -> Optional[Dict[str, Any]]:
+    path = _cache_path(model_name, conf, digest)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload_wrapper = json.load(fh)
+        if payload_wrapper.get("_version") != _CACHE_VERSION:
+            return None
+        payload = payload_wrapper.get("payload")
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        return None
+    return None
+
+
+def _store_cached_detection(model_name: str, conf: float, digest: str, payload: Dict[str, Any]) -> None:
+    path = _cache_path(model_name, conf, digest)
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix="cache-", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"_version": _CACHE_VERSION, "payload": payload}, fh)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 # ---------- helpers ----------
@@ -119,7 +175,22 @@ class BasicDetectView(APIView):
             conf = 0.05
 
         try:
-            image = Image.open(io.BytesIO(up.read())).convert("RGB")
+            raw_bytes = up.read()
+        except Exception as e:
+            return Response({"detail": f"Unable to read uploaded file: {e}"}, status=400)
+
+        if not raw_bytes:
+            return Response({"detail": "Uploaded file is empty."}, status=400)
+
+        image_digest = hashlib.sha256(raw_bytes).hexdigest()
+        cached_payload = _load_cached_detection(model_name, conf, image_digest)
+        if cached_payload is not None:
+            resp = Response(cached_payload, status=200)
+            resp["X-Detection-Cache"] = "HIT"
+            return resp
+
+        try:
+            image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
         except Exception as e:
             return Response({"detail": f"Invalid image: {e}"}, status=400)
 
@@ -132,7 +203,13 @@ class BasicDetectView(APIView):
         except Exception as e:
             return Response({"detail": f"Inference error: {e}"}, status=500)
 
-        return Response(payload, status=200)
+        resp = Response(payload, status=200)
+        resp["X-Detection-Cache"] = "MISS"
+        try:
+            _store_cached_detection(model_name, conf, image_digest, payload)
+        except Exception:
+            pass
+        return resp
 
 class HealthView(APIView):
     authentication_classes = []
@@ -564,16 +641,53 @@ class KernelMeasureView(APIView):
         if "image" not in request.FILES:
             return Response({"detail": "image file is required"}, status=400)
 
-        image = request.FILES["image"]
+        upload = request.FILES["image"]
+        try:
+            raw_bytes = upload.read()
+        except Exception as e:
+            return Response({"detail": f"Unable to read uploaded file: {e}"}, status=400)
+
+        if not raw_bytes:
+            return Response({"detail": "Uploaded file is empty."}, status=400)
+
+        image_digest = hashlib.sha256(raw_bytes).hexdigest()
         model_name = s.validated_data.get("model", "kernel")
-        sidemm = float(s.validated_data["sidemm"])  # required
-        allowed_ids_csv = s.validated_data.get("allowed_ids", "0,1,2,3")
+        sidemm = float(s.validated_data["sidemm"])
+        allowed_ids_raw = s.validated_data.get("allowed_ids", "0,1,2,3")
+        allowed_ids_csv = normalize_allowed_ids_csv(allowed_ids_raw)
         use_sam = bool(s.validated_data.get("use_sam", False))
         sam_checkpoint = s.validated_data.get("sam_checkpoint", "")
         sam_model_type = s.validated_data.get("sam_model_type", "vit_b")
 
+        params_hash, _ = compute_kernel_params_hash(
+            model_name,
+            sidemm,
+            allowed_ids_csv,
+            use_sam,
+            sam_checkpoint,
+            sam_model_type,
+        )
+
+        cached_payload = None
+        if image_digest and params_hash:
+            cached_payload = load_kernel_cache(image_digest, params_hash)
+
+        original_name = upload.name or "kernel-image"
+        ext = os.path.splitext(original_name)[1] or ".jpg"
+        stored_name = f"{image_digest}{ext}"
+
+        if cached_payload is not None:
+            payload = dict(cached_payload)
+            job = DetectionJob.objects.create(
+                image=ContentFile(raw_bytes, name=stored_name),
+                status="DONE",
+                progress=100,
+                result=json.dumps(payload),
+            )
+            return Response({"unique_id": str(job.id), "success": True, "cached": True}, status=status.HTTP_200_OK)
+
         job = DetectionJob.objects.create(
-            image=image,
+            image=ContentFile(raw_bytes, name=stored_name),
             status="QUEUED",
             progress=0,
         )
@@ -588,6 +702,8 @@ class KernelMeasureView(APIView):
             use_sam,
             sam_checkpoint,
             sam_model_type,
+            image_digest,
+            params_hash,
         )
 
-        return Response({"unique_id": str(job.id), "success": True}, status=status.HTTP_202_ACCEPTED)
+        return Response({"unique_id": str(job.id), "success": True, "cached": False}, status=status.HTTP_202_ACCEPTED)

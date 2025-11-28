@@ -55,7 +55,6 @@ services:
       # Use Redis for result backend as well to support chords/callbacks
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
     volumes:
-      - ./backend:/app
       - media-data:/app/media
     restart: unless-stopped
     depends_on:
@@ -88,7 +87,6 @@ services:
       MODEL_KERNEL: "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
     volumes:
-      - ./backend:/app
       - media-data:/app/media
     restart: unless-stopped
     depends_on:

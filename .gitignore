@@ -201,6 +201,10 @@ frontend/dist/
 
 # Let’s Encrypt state (managed via Docker volumes when running in production)
 nginx/certs/
+# Local self-signed certs (generate per environment; don't commit private keys)
+nginx/selfsigned/
+# Local backup copies
+copy/
 
 # Deployment env files
 .env.prod

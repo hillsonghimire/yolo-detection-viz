@@ -113,7 +113,7 @@ services:
         condition: service_started
       frontend-build:
         condition: service_completed_successfully
-    entrypoint: ["/etc/nginx/docker-entrypoint.sh"]
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /etc/nginx/docker-entrypoint.sh > /tmp/docker-entrypoint.sh && chmod +x /tmp/docker-entrypoint.sh && exec /tmp/docker-entrypoint.sh \"$@\"", "--"]
     ports:
       - "80:80"
       - "443:443"

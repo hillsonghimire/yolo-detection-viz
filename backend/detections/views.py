@@ -96,7 +96,8 @@ def _image_dims(image_path: str) -> Tuple[int, int]:
         return 0, 0
 
 class BasicDetectView(APIView):
-    # ... (rest of BasicDetectView is unchanged)
+    authentication_classes = []
+    permission_classes = []
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -164,6 +165,7 @@ class BasicDetectView(APIView):
         tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
+        print("DEBUG: BasicDetectView.post called", flush=True)
         up = request.FILES.get("image") or request.FILES.get("file")
         if not up:
             return Response({"detail": "No file uploaded (expected 'image' or 'file')."}, status=400)
@@ -175,7 +177,9 @@ class BasicDetectView(APIView):
             conf = 0.05
 
         try:
+            print("DEBUG: Reading file...", flush=True)
             raw_bytes = up.read()
+            print(f"DEBUG: Read {len(raw_bytes)} bytes", flush=True)
         except Exception as e:
             return Response({"detail": f"Unable to read uploaded file: {e}"}, status=400)
 
@@ -185,17 +189,22 @@ class BasicDetectView(APIView):
         image_digest = hashlib.sha256(raw_bytes).hexdigest()
         cached_payload = _load_cached_detection(model_name, conf, image_digest)
         if cached_payload is not None:
+            print("DEBUG: Cache hit", flush=True)
             resp = Response(cached_payload, status=200)
             resp["X-Detection-Cache"] = "HIT"
             return resp
 
         try:
+            print("DEBUG: Opening image...", flush=True)
             image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            print("DEBUG: Image opened", flush=True)
         except Exception as e:
             return Response({"detail": f"Invalid image: {e}"}, status=400)
 
         try:
+            print(f"DEBUG: Running inference with model {model_name}...", flush=True)
             payload = run_inference(model_name, image, conf=conf)
+            print("DEBUG: Inference done", flush=True)
         except FileNotFoundError as e:
             return Response({"detail": str(e)}, status=404)
         except ValueError as e:

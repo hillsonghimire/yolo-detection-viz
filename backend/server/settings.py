@@ -31,6 +31,16 @@ def env_int(name, default=0):
         return default
 
 
+def dedupe(seq):
+    seen = set()
+    out = []
+    for item in seq:
+        if item and item not in seen:
+            out.append(item)
+            seen.add(item)
+    return out
+
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
 DEBUG = env_bool("DEBUG", True)
 _allowed_hosts = env_list("ALLOWED_HOSTS", ["*"])
@@ -114,10 +124,20 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS / CSRF
 CSRF_TRUSTED_ORIGINS = [origin.rstrip("/") for origin in env_list("CSRF_TRUSTED_ORIGINS")]
-CORS_ALLOWED_ORIGINS = [origin.rstrip("/") for origin in env_list("CORS_ALLOWED_ORIGINS")]
-CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL", not CORS_ALLOWED_ORIGINS)
-if CORS_ALLOWED_ORIGINS:
-    CORS_ALLOW_ALL_ORIGINS = False
+_explicit_cors = env_list("CORS_ALLOWED_ORIGINS")
+_dev_cors = [
+    "http://localhost",
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:4173",
+]
+if env_bool("INCLUDE_DEV_CORS_ORIGINS", DEBUG):
+    _explicit_cors.extend(_dev_cors)
+CORS_ALLOWED_ORIGINS = dedupe(origin.rstrip("/") for origin in _explicit_cors)
+_default_allow_all = not env_list("CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL", _default_allow_all)
 
 # HTTPS hardening (tunable via environment)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

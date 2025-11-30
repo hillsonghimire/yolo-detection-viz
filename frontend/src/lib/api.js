@@ -41,11 +41,10 @@ const resolvedBase = (() => {
   if (typeof window !== "undefined" && window.location) {
     const { protocol, hostname, port } = window.location;
     const host = hostname || 'localhost';
-    if (host === 'localhost') {
-      const localPort = envPort || "8000";
-      return `${protocol}//${host}:${localPort}`;
-    }
-    return `${protocol}//${host}`;
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    const finalPort = isLocal ? (envPort || "8000") : (port || "");
+    const portSuffix = finalPort ? `:${String(finalPort).replace(/^:/, "")}` : "";
+    return `${protocol}//${host}${portSuffix}`;
   }
   const fallbackPort = envPort || "8000";
   return `http://localhost:${fallbackPort}`;

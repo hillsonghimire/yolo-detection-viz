@@ -485,9 +485,10 @@ export default function App() {
                       <thead>
                         <tr>
                           <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Image</th>
-                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Spikes</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Spikes (selected)</th>
                           <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Healthy spikelets</th>
                           <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Infected spikelets</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>FHB severity</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -497,6 +498,16 @@ export default function App() {
                             <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.num_spikes ?? row.spikes ?? "-"}</td>
                             <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
                             <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>
+                              {(() => {
+                                const healthy = Number(row.fhb_noninfected_spikelets ?? row.healthy ?? 0);
+                                const infected = Number(row.fhb_infected_spikelets ?? row.infected ?? 0);
+                                const total = healthy + infected;
+                                if (!total) return "0.0%";
+                                const pct = (infected / total) * 100;
+                                return `${pct.toFixed(1)}%`;
+                              })()}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

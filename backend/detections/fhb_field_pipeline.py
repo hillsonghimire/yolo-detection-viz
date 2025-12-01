@@ -258,6 +258,23 @@ def run_fhb_field_pipeline(
 
     summary_rows: List[Dict[str, Any]] = []
     if df is not None:
+        try:
+            df = df.copy()
+            healthy = df.get("fhb_noninfected_spikelets") if "fhb_noninfected_spikelets" in df else df.get("healthy")
+            infected = df.get("fhb_infected_spikelets") if "fhb_infected_spikelets" in df else df.get("infected")
+            if healthy is not None and infected is not None:
+                denom = (healthy.astype(float) + infected.astype(float)).replace(0, float("nan"))
+                df["FHB_severity"] = (infected.astype(float) / denom * 100).round(1)
+            else:
+                df["FHB_severity"] = 0.0
+            if excel_path:
+                try:
+                    df.to_excel(excel_path, index=False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         if hasattr(df, "to_json"):
             try:
                 summary_rows = json.loads(df.to_json(orient="records"))

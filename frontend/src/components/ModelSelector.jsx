@@ -11,6 +11,7 @@ export default function ModelSelector({ model, setModel }){
           <option value="spike">Wheat Spike</option>
           <option value="spikelet">Spikelet</option>
           <option value="fhb">FHB</option>
+          <option value="fhb_field">FHB Field</option>
           <option value="fdk">FDK</option>
           <option value="kernel">Kernel Size</option>
         </select>

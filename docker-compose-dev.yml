@@ -48,6 +48,7 @@ services:
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
     volumes:
       - ./backend:/app
+      - ./models:/app/models
       - media-data:/app/media
     depends_on:
       db:
@@ -82,6 +83,7 @@ services:
       DETECTION_TASK: "obb"
     volumes:
       - ./backend:/app
+      - ./models:/app/models
       - media-data:/app/media
     depends_on:
       backend:

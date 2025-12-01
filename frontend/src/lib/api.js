@@ -91,6 +91,28 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
   return res.json();
 }
 
+export async function runFhbFieldPipeline({ file, files = [], runName = "" }) {
+  const fd = new FormData();
+  const list = [];
+  for (const f of files || []) {
+    if (f && typeof f.size === "number" && f.size > 0) list.push(f);
+  }
+  if (file && list.length === 0) list.push(file);
+  if (list.length === 0) {
+    throw new Error("No images provided for FHB field pipeline");
+  }
+  list.forEach((f) => fd.append("images", f, f.name || "upload.jpg"));
+  if (runName) fd.append("run_name", runName);
+
+  const res = await fetch(`${BASE}/api/pipeline/fhb-field/`, { method: "POST", body: fd });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = await res.text(); } catch {}
+    throw new Error(`FHB field pipeline failed (HTTP ${res.status}${msg ? ` - ${msg}` : ""})`);
+  }
+  return res.json();
+}
+
 // ---- Bulk processing APIs ----
 export async function submitBulk({ files, model, confidence = 0.25, kernelParams = null }) {
   const fd = new FormData();

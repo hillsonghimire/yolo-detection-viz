@@ -5,7 +5,7 @@ import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
-import { detectOnce, measureKernel, getJob, downloadMeasure } from "./lib/api.js";
+import { detectOnce, measureKernel, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl } from "./lib/api.js";
 import ZoomableImage from "./components/ZoomableImage.jsx";
 import "./styles.css";
 
@@ -26,6 +26,7 @@ export default function App() {
   const [meta, setMeta] = useState(null);
   const [conf, setConf] = useState(0.3);
   const [msg, setMsg] = useState("");
+  const [fhbFieldResult, setFhbFieldResult] = useState(null);
   const [bulkMode, setBulkMode] = useState(false);
   // kernel measurement state
   const [km, setKm] = useState({ sidemm: 40, allowedIds: "425,100,201,310", useSam: true, samCheckpoint: "models/sam_vit_b_01ec64.pth", samModelType: "vit_b" });
@@ -33,6 +34,8 @@ export default function App() {
   const [kmOverlay, setKmOverlay] = useState("");
   const [kmCSV, setKmCSV] = useState("");
   const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
+  const isFhbField = model === "fhb_field";
+  const bulkDisabled = isFhbField;
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -77,29 +80,6 @@ export default function App() {
   );
 
   // Per-class counts for filtered (left of slash) and all raw (right of slash)
-  const classCounts = useMemo(() => {
-    const f = new Map();
-    const r = new Map();
-    const keyOf = (d) =>
-      d.class != null ? String(d.class) :
-      d.class_id != null ? String(d.class_id) : "obj";
-
-    for (const d of raw) {
-      const k = keyOf(d);
-      r.set(k, (r.get(k) || 0) + 1);
-    }
-    for (const d of filtered) {
-      const k = keyOf(d);
-      f.set(k, (f.get(k) || 0) + 1);
-    }
-
-    // stable order: by raw count desc, then key
-    const keys = Array.from(new Set([...r.keys(), ...f.keys()]));
-    keys.sort((a, b) => (r.get(b) || 0) - (r.get(a) || 0) || String(a).localeCompare(String(b)));
-
-    return { keys, f, r };
-  }, [raw, filtered]);
-
   const fallbackWidth = 420;
   const fallbackHeight = Math.round(fallbackWidth * 0.75);
   const placeholderWidth = Math.round(disp?.width || fallbackWidth);
@@ -111,6 +91,7 @@ export default function App() {
     setRaw([]);
     setMeta(null);
     setMsg("");
+    setFhbFieldResult(null);
     setKmJobId(""); setKmOverlay(""); setKmCSV("");
     setBulkMode(false);
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -123,7 +104,12 @@ export default function App() {
   }, [bulkMode]);
 
   useEffect(() => {
-    if (bulkModeRef.current) return;
+    if (model === 'fhb_field') {
+      setBulkMode(false);
+      bulkModeRef.current = false;
+    } else if (bulkModeRef.current) {
+      return;
+    }
     if (urlRef.current) {
       URL.revokeObjectURL(urlRef.current);
       urlRef.current = null;
@@ -136,6 +122,7 @@ export default function App() {
     setKmJobId("");
     setKmOverlay("");
     setKmCSV("");
+    setFhbFieldResult(null);
   }, [model]);
 
   const onRun = async () => {
@@ -143,7 +130,12 @@ export default function App() {
     setBusy(true);
     setMsg("");
     try {
-      if (model === 'kernel') {
+      if (model === 'fhb_field') {
+        const data = await runFhbFieldPipeline({ file });
+        setFhbFieldResult(data || null);
+        setRaw([]);
+        setMeta(null);
+      } else if (model === 'kernel') {
         const { unique_id } = await measureKernel({
           file,
           model: 'kernel',
@@ -247,6 +239,8 @@ export default function App() {
               type="button"
               className={`mode-toggle__option ${!bulkMode ? "active" : ""}`}
               onClick={() => setBulkMode(false)}
+              disabled={bulkDisabled}
+              aria-disabled={bulkDisabled}
               aria-pressed={!bulkMode}
             >
               Single
@@ -255,6 +249,8 @@ export default function App() {
               type="button"
               className={`mode-toggle__option ${bulkMode ? "active" : ""}`}
               onClick={() => setBulkMode(true)}
+              disabled={bulkDisabled}
+              aria-disabled={bulkDisabled}
               aria-pressed={bulkMode}
             >
               Bulk
@@ -291,7 +287,7 @@ export default function App() {
 
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
-      {!bulkMode && model !== 'kernel' && (
+      {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && (
         <section className="detect-frame">
           <DetectPanel
             imageURL={imageURL}
@@ -304,6 +300,75 @@ export default function App() {
           />
           <div className="detect-controls">
             <ConfidenceRail value={conf} onChange={setConf} />
+          </div>
+        </section>
+      )}
+
+      {!bulkMode && isFhbField && (
+        <section className="detect-frame">
+          <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="input-header" style={{ alignItems: 'flex-start' }}>
+              <h3>FHB Field Pipeline</h3>
+              <div className="small" style={{ color: 'var(--muted)' }}>
+                Runs spike detection → orientation filtering → FHB scoring on the selected demo image(s).
+              </div>
+            </div>
+            {fhbFieldResult ? (
+              <>
+                <div className="small" style={{ color: 'var(--muted)' }}>
+                  Run <strong>{fhbFieldResult.run_name || "latest"}</strong> · Inputs: {Array.isArray(fhbFieldResult.inputs) ? fhbFieldResult.inputs.length : 0}
+                  {fhbFieldResult.results_root ? ` · Outputs saved under media/${fhbFieldResult.results_root}` : ""}
+                </div>
+                {Array.isArray(fhbFieldResult.summary) && fhbFieldResult.summary.length > 0 ? (
+                  <div className="table-wrap" style={{ overflowX: "auto" }}>
+                    <table className="small" style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Image</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Spikes</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Healthy spikelets</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Infected spikelets</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fhbFieldResult.summary.map((row, idx) => (
+                          <tr key={idx}>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{row.image_name || row.image || `image_${idx + 1}`}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.num_spikes ?? row.spikes ?? "-"}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="small" style={{ color: 'var(--muted)' }}>
+                    Pipeline finished but no spikelets were scored in the crops.
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {fhbFieldResult.excel_name && (
+                    <a
+                      className="btn"
+                      href={downloadUrl('excel', fhbFieldResult.excel_name)}
+                      download={fhbFieldResult.excel_name}
+                    >
+                      Download Excel summary
+                    </a>
+                  )}
+                  {fhbFieldResult.overlays?.length ? (
+                    <span className="small" style={{ color: 'var(--muted)' }}>
+                      Overlays saved in {fhbFieldResult.overlays.length} files under media/{fhbFieldResult.results_root || ""}
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="small" style={{ color: 'var(--muted)' }}>
+                Pick a demo image and start processing to run the full FHB field pipeline. Results and downloads will appear here.
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -390,7 +455,7 @@ export default function App() {
         </section>
       )}
 
-      {bulkMode && (
+      {bulkMode && !isFhbField && (
         <BulkPanel
           model={model}
           onExit={() => setBulkMode(false)}

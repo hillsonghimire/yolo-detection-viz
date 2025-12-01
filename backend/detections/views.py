@@ -26,6 +26,7 @@ from .models import DetectionJob, BulkDetectionJob
 from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer
 from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement
 from .detect_models import run_inference
+from .fhb_field_pipeline import run_fhb_field_pipeline
 from .kernel_cache import (
     normalize_allowed_ids_csv,
     compute_kernel_params_hash,
@@ -219,6 +220,82 @@ class BasicDetectView(APIView):
         except Exception:
             pass
         return resp
+
+class FhbFieldPipelineView(APIView):
+    """
+    Run the multi-stage FHB field assessment pipeline:
+      1) Spike OBB detection + cropping
+      2) Orientation classification to keep good spikes
+      3) FHB detection + per-image aggregation (Excel + JSON summary)
+    """
+    authentication_classes = []
+    permission_classes = []
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Run FHB field assessment pipeline",
+        description=(
+            "Uploads one or more field images and executes the bundled pipeline "
+            "(spike detection → orientation classifier → FHB scoring). "
+            "Returns aggregated counts per source image and a downloadable Excel summary."
+        ),
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "images": {"type": "array", "items": {"type": "string", "format": "binary"}, "description": "One or more images to process"},
+                    "image": {"type": "string", "format": "binary", "description": "Alternate single-image key"},
+                    "run_name": {"type": "string", "description": "Optional custom run label"},
+                },
+            }
+        },
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "run_name": {"type": "string", "example": "fhb_field_ab12cd34"},
+                        "inputs": {"type": "array", "items": {"type": "string"}},
+                        "summary": {"type": "array", "items": {"type": "object"}},
+                        "excel_name": {"type": "string", "example": "fhb_field_ab12cd34_fhb_field.xlsx"},
+                        "excel_rel_path": {"type": "string"},
+                        "results_root": {"type": "string"},
+                        "logs": {"type": "array", "items": {"type": "object"}},
+                        "overlays": {"type": "array", "items": {"type": "object"}},
+                    }
+                },
+                description="Pipeline completed successfully."
+            ),
+            400: OpenApiResponse(description="Bad request (missing files)"),
+            404: OpenApiResponse(description="Pipeline assets not found"),
+            500: OpenApiResponse(description="Pipeline error"),
+        },
+        tags=["Detection"],
+    )
+    def post(self, request, *args, **kwargs):
+        files = request.FILES.getlist("images")
+        if not files:
+            single = request.FILES.get("image") or request.FILES.get("file")
+            if single:
+                files = [single]
+        if not files:
+            return Response({"detail": "No images uploaded. Use 'images' (list) or 'image' (single)."}, status=400)
+
+        run_name = (request.data.get("run_name") or "").strip() or None
+        try:
+            payload = run_fhb_field_pipeline(files=files, run_name=run_name)
+        except FileNotFoundError as e:
+            return Response({"detail": str(e)}, status=404)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=400)
+        except ImportError as e:
+            return Response({"detail": str(e)}, status=500)
+        except Exception as e:
+            return Response({"detail": f"Pipeline error: {e}"}, status=500)
+
+        return Response(payload, status=200)
 
 class HealthView(APIView):
     authentication_classes = []

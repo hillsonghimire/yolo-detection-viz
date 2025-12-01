@@ -14,6 +14,7 @@ from .views import (
     KernelMeasureView,
     DownloadMeasureImageView,
     DownloadMeasureCSVView,
+    FhbFieldPipelineView,
 )
 
 urlpatterns = [
@@ -33,4 +34,5 @@ urlpatterns = [
     path("download/measure/csv/<str:fname>", DownloadMeasureCSVView.as_view(), name="download-measure-csv"),
     path("health/", HealthView.as_view(), name="health"),
     path("measure/kernel/", KernelMeasureView.as_view(), name="measure-kernel"),
+    path("pipeline/fhb-field/", FhbFieldPipelineView.as_view(), name="fhb-field-pipeline"),
 ]

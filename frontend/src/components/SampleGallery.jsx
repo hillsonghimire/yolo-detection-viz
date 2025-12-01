@@ -1,4 +1,21 @@
 // Replace these URLs with your real samples placed in /public/samples/...
+const fhbSamples = [
+  "/samples/fhb/fhb1.JPG",
+  "/samples/fhb/fhb8.JPG",
+  "/samples/fhb/fhb3.jpg",
+  // "/samples/fhb/fhb4.jpg",
+  "/samples/fhb/fhb5.jpg",
+  "/samples/fhb/fhb6.JPG",
+  "/samples/fhb/fhb2.jpg",
+  // "/samples/fhb/fhb7.JPG",
+  // "/samples/fhb/fhb8.JPG",
+  // "/samples/fhb/fhb9.JPG",
+  "/samples/fhb/fhb10.JPG",
+  // "/samples/fhb/fhb11.JPG",
+  // "/samples/fhb/fhb12.JPG",
+  // "/samples/fhb/fhb13.JPG",
+];
+
 const samples = {
   spike: [
     "/samples/spike/spike1.jpg",
@@ -27,23 +44,8 @@ const samples = {
     // "/samples/spikelet/spikelet11.png",
     // "/samples/spikelet/spikelet12.png",
   ],
-  fhb: [
-    "/samples/fhb/fhb1.JPG",
-    "/samples/fhb/fhb8.JPG",
-    "/samples/fhb/fhb3.jpg",
-    // "/samples/fhb/fhb4.jpg",
-    "/samples/fhb/fhb5.jpg",
-    "/samples/fhb/fhb6.JPG",
-    "/samples/fhb/fhb2.jpg",
-    // "/samples/fhb/fhb7.JPG",
-    // "/samples/fhb/fhb8.JPG",
-    // "/samples/fhb/fhb9.JPG",
-    "/samples/fhb/fhb10.JPG",
-    // "/samples/fhb/fhb11.JPG",
-    // "/samples/fhb/fhb12.JPG",
-    // "/samples/fhb/fhb13.JPG",
-    ,
-  ],
+  fhb: fhbSamples,
+  fhb_field: fhbSamples,
   fdk: [
     "/samples/fdk/fdk1.JPG",
     "/samples/fdk/fdk2.JPG",
@@ -56,7 +58,7 @@ const samples = {
     "/samples/fdk/fdk9.JPG",
     // "/samples/fdk/fdk10.JPG",
   ],
-    kernel: [
+  kernel: [
     "/samples/kernel/kernel10.JPG",
     "/samples/kernel/kernel12.JPG",
     "/samples/kernel/kernel9.JPG",

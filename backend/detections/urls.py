@@ -10,6 +10,7 @@ from .views import (
     DownloadLabelsView, 
     DownloadAnnotatedImageView,
     DownloadExcelView,
+    DownloadMediaView,
     HealthView,
     KernelMeasureView,
     DownloadMeasureImageView,
@@ -30,6 +31,7 @@ urlpatterns = [
     path("download/<str:fname>", DownloadLabelsView.as_view(), name="download-labels"),
     path("download/image/<str:fname>", DownloadAnnotatedImageView.as_view(), name="download-image"),
     path("download/excel/<str:fname>", DownloadExcelView.as_view(), name="download-excel"), # Point to the new view
+    path("download/media/<path:rel>", DownloadMediaView.as_view(), name="download-media"),
     path("download/measure/image/<str:fname>", DownloadMeasureImageView.as_view(), name="download-measure-image"),
     path("download/measure/csv/<str:fname>", DownloadMeasureCSVView.as_view(), name="download-measure-csv"),
     path("health/", HealthView.as_view(), name="health"),

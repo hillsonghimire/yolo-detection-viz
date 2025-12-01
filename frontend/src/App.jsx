@@ -5,7 +5,7 @@ import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
-import { detectOnce, measureKernel, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl } from "./lib/api.js";
+import { detectOnce, measureKernel, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl, downloadMedia } from "./lib/api.js";
 import ZoomableImage from "./components/ZoomableImage.jsx";
 import "./styles.css";
 
@@ -33,6 +33,11 @@ export default function App() {
   const [kmJobId, setKmJobId] = useState("");
   const [kmOverlay, setKmOverlay] = useState("");
   const [kmCSV, setKmCSV] = useState("");
+  const [downloadPreviewOpen, setDownloadPreviewOpen] = useState({});
+  const [lightbox, setLightbox] = useState(null);
+  const [selectedDownloadKey, setSelectedDownloadKey] = useState(null);
+  const [pipelineStage, setPipelineStage] = useState(null); // 0=spike,1=orientation,2=fhb
+  const [previewLimit, setPreviewLimit] = useState({});
   const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
   const isFhbField = model === "fhb_field";
   const bulkDisabled = isFhbField;
@@ -45,6 +50,33 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     try { localStorage.setItem('theme', theme); } catch {}
   }, [theme]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (fhbFieldResult?.downloads?.length) {
+      const firstKey = fhbFieldResult.downloads[0].type || fhbFieldResult.downloads[0].label || null;
+      setSelectedDownloadKey(firstKey);
+      setPreviewLimit({});
+    } else {
+      setSelectedDownloadKey(null);
+      setPreviewLimit({});
+    }
+  }, [fhbFieldResult]);
+
+  useEffect(() => {
+    if (selectedDownloadKey) {
+      const bundle = fhbFieldResult?.downloads?.find((d, idx) => (d.type || d.label || String(idx)) === selectedDownloadKey);
+      const defaultLimit = (bundle?.type === 'spike_detection') ? 2 : 3;
+      setPreviewLimit((prev) => prev[selectedDownloadKey] ? prev : { ...prev, [selectedDownloadKey]: defaultLimit });
+    }
+  }, [selectedDownloadKey, fhbFieldResult]);
 
   useEffect(() => {
     const href = `${import.meta.env.BASE_URL}background.jpg`;
@@ -92,6 +124,11 @@ export default function App() {
     setMeta(null);
     setMsg("");
     setFhbFieldResult(null);
+    setDownloadPreviewOpen({});
+    setLightbox(null);
+    setSelectedDownloadKey(null);
+    setPipelineStage(null);
+    setPreviewLimit({});
     setKmJobId(""); setKmOverlay(""); setKmCSV("");
     setBulkMode(false);
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -122,6 +159,11 @@ export default function App() {
     setKmJobId("");
     setKmOverlay("");
     setKmCSV("");
+    setDownloadPreviewOpen({});
+    setLightbox(null);
+    setSelectedDownloadKey(null);
+    setPipelineStage(null);
+    setPreviewLimit({});
     setFhbFieldResult(null);
   }, [model]);
 
@@ -129,10 +171,20 @@ export default function App() {
     if (!file) return;
     setBusy(true);
     setMsg("");
+    if (model !== 'fhb_field') {
+      setPipelineStage(null);
+    }
+    let midStageTimer = null;
     try {
       if (model === 'fhb_field') {
+        setPipelineStage(0);
+        midStageTimer = setTimeout(() => setPipelineStage(1), 1200);
         const data = await runFhbFieldPipeline({ file });
         setFhbFieldResult(data || null);
+        setDownloadPreviewOpen({});
+        const firstKey = data?.downloads?.[0]?.type || data?.downloads?.[0]?.label || null;
+        setSelectedDownloadKey(firstKey);
+        setPipelineStage(2);
         setRaw([]);
         setMeta(null);
       } else if (model === 'kernel') {
@@ -184,7 +236,9 @@ export default function App() {
       }
     } catch (e) {
       setMsg(String(e.message || e));
+      if (model === 'fhb_field') setPipelineStage(null);
     } finally {
+      if (midStageTimer) clearTimeout(midStageTimer);
       setBusy(false);
     }
   };
@@ -309,8 +363,16 @@ export default function App() {
           <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="input-header" style={{ alignItems: 'flex-start' }}>
               <h3>FHB Field Pipeline</h3>
-              <div className="small" style={{ color: 'var(--muted)' }}>
-                Runs spike detection → orientation filtering → FHB scoring on the selected demo image(s).
+              <div className="small" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {["Spike detection", "Orientation filtering", "FHB scoring"].map((label, idx) => {
+                  const active = pipelineStage === idx || (pipelineStage === null && fhbFieldResult && idx === 2);
+                  return (
+                    <span key={idx} style={{ color: active ? '#c62828' : 'var(--muted)', fontWeight: active ? 700 : 500 }}>
+                      {label}{idx < 2 ? " →" : ""}
+                    </span>
+                  );
+                })}
+                <span className="small" style={{ color: 'var(--muted)' }}>on the selected demo image(s).</span>
               </div>
             </div>
             {fhbFieldResult ? (
@@ -319,6 +381,104 @@ export default function App() {
                   Run <strong>{fhbFieldResult.run_name || "latest"}</strong> · Inputs: {Array.isArray(fhbFieldResult.inputs) ? fhbFieldResult.inputs.length : 0}
                   {fhbFieldResult.results_root ? ` · Outputs saved under media/${fhbFieldResult.results_root}` : ""}
                 </div>
+                {fhbFieldResult.downloads?.length ? (() => {
+                  const downloads = fhbFieldResult.downloads;
+                  const active = downloads.find((d, idx) => (d.type || d.label || String(idx)) === selectedDownloadKey) || downloads[0];
+                  const activeKey = active ? (active.type || active.label || "active") : null;
+                  const previews = Array.isArray(active?.previews) ? active.previews : [];
+                  const limit = activeKey ? (previewLimit[activeKey] ?? 2) : 2;
+                  const visiblePreviews = previews.slice(0, limit);
+                  return (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <div className="card" style={{ padding: 10, minWidth: 240, maxWidth: 280 }}>
+                        <div className="small" style={{ marginBottom: 6, color: 'var(--muted)' }}>Downloads</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {downloads.map((d, idx) => {
+                            const key = d.type || d.label || String(idx);
+                            const isActive = key === activeKey;
+                            return (
+                              <div key={key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className={`btn outline${isActive ? " active" : ""}`}
+                                  onClick={() => setSelectedDownloadKey(key)}
+                                  style={{ flex: 1 }}
+                                >
+                                  {d.label || d.type || `Bundle ${idx + 1}`}
+                                </button>
+                                <a
+                                  className="btn"
+                                  href={downloadMedia(d.path)}
+                                  download
+                                  title="Download"
+                                  style={{ padding: "6px 10px" }}
+                                >
+                                  ⬇
+                                </a>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="card" style={{ padding: 10, flex: 1, minWidth: 280 }}>
+                        {active ? (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <div className="small" style={{ color: 'var(--muted)' }}>
+                                {active.label || active.type || "Selected bundle"}
+                              </div>
+                              <a className="btn" href={downloadMedia(active.path)} download>
+                                ⬇ Download
+                              </a>
+                            </div>
+                            <div style={{ marginTop: 10 }}>
+                              {visiblePreviews.length ? (
+                                <>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10 }}>
+                                    {visiblePreviews.map((p, i) => (
+                                      <div key={i} style={{ border: '1px solid var(--line)', padding: 6, borderRadius: 6, background: 'var(--panel)' }}>
+                                        <img
+                                          src={downloadMedia(p)}
+                                          alt={active.label || active.type || "preview"}
+                                          style={{ width: "100%", height: "200px", objectFit: "contain", borderRadius: 4, cursor: "pointer", background: "#000" }}
+                                          onClick={() => setLightbox({ src: downloadMedia(p), alt: active.label || active.type || "preview" })}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {previews.length > visiblePreviews.length ? (
+                                    <div style={{ marginTop: 10 }}>
+                                      <button
+                                        type="button"
+                                        className="btn outline"
+                                        onClick={() => {
+                                          if (activeKey) {
+                                            setPreviewLimit((prev) => ({
+                                              ...prev,
+                                              [activeKey]: Math.min(previews.length, (prev[activeKey] ?? 2) + 4),
+                                            }));
+                                          }
+                                        }}
+                                      >
+                                        View more (+4)
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <div className="small" style={{ color: 'var(--muted)' }}>
+                                  No preview images available for this bundle.
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="small" style={{ color: 'var(--muted)' }}>Select a bundle to view previews.</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })() : null}
                 {Array.isArray(fhbFieldResult.summary) && fhbFieldResult.summary.length > 0 ? (
                   <div className="table-wrap" style={{ overflowX: "auto" }}>
                     <table className="small" style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -462,6 +622,71 @@ export default function App() {
           kernelParams={km}
           setKernelParams={setKm}
         />
+      )}
+
+      {lightbox?.src && (
+        <div
+          className="lightbox"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => setLightbox(null)}
+        >
+          <div
+            style={{
+              position: "relative",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+              background: "#000",
+              borderRadius: 8,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={() => setLightbox(null)}
+              style={{
+                position: "absolute",
+                top: 6,
+                right: 6,
+                background: "rgba(0,0,0,0.5)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "50%",
+                width: 32,
+                height: 32,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 18,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+            <img
+              src={lightbox.src}
+              alt={lightbox.alt || "preview"}
+              style={{
+                maxWidth: "90vw",
+                maxHeight: "90vh",
+                display: "block",
+                objectFit: "contain",
+                borderRadius: 8,
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

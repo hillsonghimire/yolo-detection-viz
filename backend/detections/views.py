@@ -4,11 +4,12 @@ import io
 import json
 import hashlib
 import tempfile
+import mimetypes
 from typing import Dict, Any, List, Optional, Tuple
 
 from django.db import transaction
 from django.conf import settings
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404
@@ -644,6 +645,24 @@ class DownloadExcelView(APIView):
             filename=fname,
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+class DownloadMediaView(APIView):
+    """
+    Generic media downloader for files produced by pipelines (FHB field, etc.).
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request, rel: str):
+        rel_norm = os.path.normpath(rel).lstrip(os.sep)
+        base = os.path.abspath(settings.MEDIA_ROOT)
+        abs_path = os.path.abspath(os.path.join(base, rel_norm))
+        if not abs_path.startswith(base):
+            raise Http404("Invalid path")
+        if not os.path.exists(abs_path):
+            raise Http404("File not found")
+        mime, _ = mimetypes.guess_type(abs_path)
+        return FileResponse(open(abs_path, "rb"), as_attachment=True, filename=os.path.basename(abs_path), content_type=mime or "application/octet-stream")
 
 class DownloadMeasureImageView(APIView):
     authentication_classes = []

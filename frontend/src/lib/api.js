@@ -195,6 +195,11 @@ export function downloadUrl(kind, fname) {
   throw new Error("unknown download kind");
 }
 
+export function downloadMedia(relPath) {
+  const cleaned = String(relPath || "").replace(/^\\+|^\/+/, "");
+  return `${BASE}/api/download/media/${cleaned}`;
+}
+
 // ---- Kernel measurement APIs ----
 export async function measureKernel({ file, model = 'kernel', sidemm, allowedIds = '0,1,2,3', useSam = false, samCheckpoint = '', samModelType = 'vit_b' }){
   const fd = new FormData();

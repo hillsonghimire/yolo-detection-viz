@@ -3,17 +3,18 @@ const fhbSamples = [
   "/samples/fhb/fhb1.JPG",
   "/samples/fhb/fhb8.JPG",
   "/samples/fhb/fhb3.jpg",
-  // "/samples/fhb/fhb4.jpg",
   "/samples/fhb/fhb5.jpg",
   "/samples/fhb/fhb6.JPG",
   "/samples/fhb/fhb2.jpg",
-  // "/samples/fhb/fhb7.JPG",
-  // "/samples/fhb/fhb8.JPG",
-  // "/samples/fhb/fhb9.JPG",
   "/samples/fhb/fhb10.JPG",
-  // "/samples/fhb/fhb11.JPG",
-  // "/samples/fhb/fhb12.JPG",
-  // "/samples/fhb/fhb13.JPG",
+];
+
+const fhbFieldSamples = [
+  "/samples/fhb-field/KSU1.JPG",
+  "/samples/fhb-field/KSU2.JPG",
+  "/samples/fhb-field/sdsu3.jpg",
+  "/samples/fhb-field/KSU4.JPG",
+  "/samples/fhb-field/sdsu11.JPG",
 ];
 
 const samples = {
@@ -45,7 +46,7 @@ const samples = {
     // "/samples/spikelet/spikelet12.png",
   ],
   fhb: fhbSamples,
-  fhb_field: fhbSamples,
+  fhb_field: fhbFieldSamples,
   fdk: [
     "/samples/fdk/fdk1.JPG",
     "/samples/fdk/fdk2.JPG",

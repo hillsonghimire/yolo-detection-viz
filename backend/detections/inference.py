@@ -1,5 +1,4 @@
 # detections/inference.py
-import os
 from typing import List, Dict, Any, Tuple
 from PIL import Image
 import numpy as np
@@ -7,6 +6,7 @@ from ultralytics import YOLO
 
 # Use the centralized model loader and results normalization
 from .detect_models import load_model, results_to_response
+from .detection_cache import load_detection_cache, store_detection_cache, sha256_file
 
 # A simple in-memory cache for models
 _model_cache: Dict[str, YOLO] = {}
@@ -40,7 +40,13 @@ def _poly8(x) -> List[float]:
     return [float(v) for v in flat[:8]]
 
 
-def run_detection(image_path: str, confidence: float = 0.25, model_name: str = "spike") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def run_detection(
+    image_path: str,
+    confidence: float = 0.25,
+    model_name: str = "spike",
+    image_digest: str = "",
+    use_cache: bool = True,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     Dynamically loads and runs detection with the specified model.
 
@@ -56,13 +62,25 @@ def run_detection(image_path: str, confidence: float = 0.25, model_name: str = "
       meta: {"image_width": int, "image_height": int}
     """
     model = _get_model(model_name)
-    
-    # Run prediction and get results
-    results = model.predict(source=image_path, conf=confidence, verbose=False)
-    
-    # Use the shared results_to_response function to normalize the output
-    normalized_result = results_to_response(results[0])
-    
+
+    digest = image_digest or (sha256_file(image_path) if use_cache else "")
+    cached_payload = None
+    if use_cache and digest:
+        cached_payload = load_detection_cache(model_name, confidence, digest)
+
+    if cached_payload is not None:
+        normalized_result = cached_payload
+    else:
+        # Run prediction and get results
+        results = model.predict(source=image_path, conf=confidence, verbose=False)
+        # Use the shared results_to_response function to normalize the output
+        normalized_result = results_to_response(results[0])
+        if use_cache and digest:
+            try:
+                store_detection_cache(model_name, confidence, digest, normalized_result)
+            except Exception:
+                pass
+
     # Modify the output to match the expected format for the async task
     detections = []
     for d in normalized_result.get("detections", []):

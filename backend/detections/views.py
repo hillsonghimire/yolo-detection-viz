@@ -3,7 +3,6 @@ import os
 import io
 import json
 import hashlib
-import tempfile
 import mimetypes
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -28,59 +27,16 @@ from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDe
 from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement
 from .detect_models import run_inference
 from .fhb_field_pipeline import run_fhb_field_pipeline
+from .detection_cache import (
+    load_detection_cache,
+    store_detection_cache,
+    sha256_bytes,
+)
 from .kernel_cache import (
     normalize_allowed_ids_csv,
     compute_kernel_params_hash,
     load_kernel_cache,
 )
-
-
-_CACHE_VERSION = 1
-_CACHE_ROOT = os.path.join(settings.MEDIA_ROOT, "cache", "basic")
-
-
-def _cache_conf_key(conf: float) -> str:
-    value = f"{float(conf):.6f}"
-    value = value.rstrip("0").rstrip(".")
-    return value or "0"
-
-
-def _cache_path(model_name: str, conf: float, digest: str) -> str:
-    safe_model = "".join(c if c.isalnum() or c in {"-", "_", "."} else "_" for c in str(model_name or "default"))
-    return os.path.join(_CACHE_ROOT, safe_model, f"{_cache_conf_key(conf)}-{digest}.json")
-
-
-def _load_cached_detection(model_name: str, conf: float, digest: str) -> Optional[Dict[str, Any]]:
-    path = _cache_path(model_name, conf, digest)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            payload_wrapper = json.load(fh)
-        if payload_wrapper.get("_version") != _CACHE_VERSION:
-            return None
-        payload = payload_wrapper.get("payload")
-        if isinstance(payload, dict):
-            return payload
-    except Exception:
-        return None
-    return None
-
-
-def _store_cached_detection(model_name: str, conf: float, digest: str, payload: Dict[str, Any]) -> None:
-    path = _cache_path(model_name, conf, digest)
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix="cache-", suffix=".json", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"_version": _CACHE_VERSION, "payload": payload}, fh)
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
 
 
 # ---------- helpers ----------
@@ -188,8 +144,8 @@ class BasicDetectView(APIView):
         if not raw_bytes:
             return Response({"detail": "Uploaded file is empty."}, status=400)
 
-        image_digest = hashlib.sha256(raw_bytes).hexdigest()
-        cached_payload = _load_cached_detection(model_name, conf, image_digest)
+        image_digest = sha256_bytes(raw_bytes)
+        cached_payload = load_detection_cache(model_name, conf, image_digest)
         if cached_payload is not None:
             print("DEBUG: Cache hit", flush=True)
             resp = Response(cached_payload, status=200)
@@ -217,7 +173,7 @@ class BasicDetectView(APIView):
         resp = Response(payload, status=200)
         resp["X-Detection-Cache"] = "MISS"
         try:
-            _store_cached_detection(model_name, conf, image_digest, payload)
+            store_detection_cache(model_name, conf, image_digest, payload)
         except Exception:
             pass
         return resp

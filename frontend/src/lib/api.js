@@ -26,9 +26,18 @@ const resolvedBase = (() => {
           port = `:${envPort}`;
         }
       }
-      return `${u.protocol}//${host}${port}`.replace(/\/$/, "");
+      // Avoid double-prefixing /api when the base URL already includes it.
+      let path = u.pathname.replace(/\/+$/, "");
+      if (path === "/api") {
+        path = "";
+      }
+      const origin = `${u.protocol}//${host}${port}`;
+      return `${origin}${path}`.replace(/\/$/, "");
     } catch {
       let cleaned = ensureProtocol(urlStr).replace(/\/$/, "");
+      if (/\/api$/i.test(cleaned)) {
+        cleaned = cleaned.replace(/\/api$/i, "");
+      }
       if (envPort && !/:\d+$/.test(cleaned) && /localhost|127\.0\.0\.1/.test(cleaned)) {
         cleaned = `${cleaned}:${envPort}`;
       }

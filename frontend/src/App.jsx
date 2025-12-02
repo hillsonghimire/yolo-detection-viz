@@ -7,6 +7,7 @@ import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
 import { detectOnce, measureKernel, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl, downloadMedia } from "./lib/api.js";
 import ZoomableImage from "./components/ZoomableImage.jsx";
+import AboutModal from "./components/AboutModal.jsx";
 import "./styles.css";
 
 export default function App() {
@@ -38,9 +39,52 @@ export default function App() {
   const [selectedDownloadKey, setSelectedDownloadKey] = useState(null);
   const [pipelineStage, setPipelineStage] = useState(null); // 0=spike,1=orientation,2=fhb
   const [previewLimit, setPreviewLimit] = useState({});
+  const [showAbout, setShowAbout] = useState(false);
   const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
   const isFhbField = model === "fhb_field";
   const bulkDisabled = isFhbField;
+
+  const aboutProfiles = useMemo(
+    () => [
+      {
+        name: "Prof. Maitiniyazi Maimaitijiang",
+        title: "Project Lead | Assistant Professor",
+        department: "Department of Geography and Geospatial Sciences",
+        affiliation: "South Dakota State University",
+        image: "/about_profile/Maimaitijiang_Maitiniyazi.avif",
+        summary:
+          "Prof. Maimaitijiang is an Assistant Professor of Remote Sensing and Geographic Information Systems in the Department of Geography and Geospatial Sciences at South Dakota State University. He earned his Ph.D. from Saint Louis University, specializing in advanced geospatial analytics and computational sensing. His research lies at the intersection of geospatial sciences, computer vision, and AI/machine learning, with applications spanning sustainable agriculture, food and water security, and environmental monitoring from regional to global scales. His work focuses on developing and implementing state-of-the-art geospatial tools and AI methods for precision agriculture and high-throughput plant phenotyping. He has extensive experience modeling plant biophysical and biochemical traits, predicting crop yield, and monitoring plant health, stress, and disease using multimodal, multiscale, and multitemporal remote sensing data—including multispectral, hyperspectral, RGB, thermal, LiDAR, and SAR imagery from satellites, UAVs, and ground platforms. Within Wheat-AI, Prof. Maimaitijiang provides foundational expertise in sensing strategy, model design, and geospatial data integration, ensuring the scientific rigor and real-world applicability of the platform’s phenotyping tools.",
+      },
+      {
+        name: "Dr. Sunish Kumar Sehgal",
+        title: "Project Lead | Professor & Winter Wheat Breeder",
+        department: "Department of Agronomy, Horticulture and Plant Science",
+        affiliation: "South Dakota State University",
+        image: "/about_profile/sunish_sehgal.jpeg",
+        summary:
+          "Dr. Sunish Kumar Sehgal received his Ph.D. in Plant Breeding and Genetics from Punjab Agricultural University and served as a Research Scientist at Kansas State University from 2006 to 2014. Since joining South Dakota State University in 2014, he has led the Winter Wheat Breeding Program, spearheading efforts to develop and release high-yielding cultivars adapted to the Northern Great Plains. His research focuses on improving wheat resilience to both biotic stresses—such as Fusarium head blight (FHB), stripe rust, leaf rust, stem rust, and wheat streak mosaic virus—and abiotic stresses including winter hardiness and drought. Under his leadership, the program integrates modern genomics, field-based phenotyping, and precision agriculture tools to accelerate cultivar development. Beyond research, Dr. Sehgal is actively engaged in teaching, advising graduate students, and supporting industry outreach across South Dakota’s wheat sector. He has authored more than 80 peer-reviewed publications spanning high-impact journals, including work featured in Nature, Science, PNAS, Genome Biology, Plant Physiology, New Phytologist, Genetics, and Theoretical and Applied Genetics.",
+      },
+      {
+        name: "Hillson Ghimire",
+        title: "Lead AI Engineer & Platform Developer | Graduate Research Assistant",
+        department: "Department of Geography and Geospatial Sciences",
+        affiliation: "South Dakota State University",
+        image: "/about_profile/Ghimire_Hillson.avif",
+        summary:
+          "Hillson Ghimire is the Lead Technical Developer of the Wheat-AI platform, where he is responsible for building the AI models, data pipelines, and deployment systems that power wheatai.net. As a Graduate Research Assistant with the Geospatial Sciences Center of Excellence, he integrates machine learning, computer vision, remote sensing, and cloud engineering to create high-throughput digital tools for breeding applications. He has developed deep-learning models for phenotyping tasks, including spike and spikelet detection, orientation analysis, kernel measurement, and FHB/FDK severity assessment, by employing orientation-aware bounding boxes, multi-scale training strategies, and high-resolution close-range imagery. His technical work spans the entire development lifecycle, covering annotation workflows, geospatial preprocessing, HPC training, and maintaining robust MLOps systems using Docker, CVAT, GCP, and Django for deployment. Hillson’s broader focus is on geospatial AI, remote sensing, and high-throughput plant phenotyping, with the goal of creating scalable, field-ready sensing systems that accelerate wheat breeding and precision agriculture.",
+      },
+      {
+        name: "Dr. Subash Thapa",
+        title: "Co-Developer | Ph.D. Researcher, Graduate Research Assistant",
+        department: "Department of Agronomy, Horticulture and Plant Science",
+        affiliation: "South Dakota State University",
+        image: "/about_profile/Subash%20Thapa.avif",
+        summary:
+          "Subash Thapa is a Ph.D. researcher in Plant Science at South Dakota State University, specializing in quantitative phenotyping and breeding wheat for improved resilience to major biotic and abiotic stresses. As a key contributor to the Wheat-AI project, he provides the critical biological perspective that connects field reality with computational modeling. Subash supports the development and validation of AI-driven disease models, particularly those targeting Fusarium Head Blight (FHB) and Fusarium-Damaged Kernels (FDK). His expertise in field pathology, trait interpretation, and phenotypic evaluation ensures that model predictions derived from high-resolution imagery are scientifically robust and accurately reflect disease severity observed in both field and post-harvest assessments. His contributions help ensure that Wheat-AI’s high-throughput outputs are biologically meaningful and directly applicable to accelerating the selection and development of resilient, high-performing wheat cultivars.",
+      },
+    ],
+    []
+  );
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -271,6 +315,15 @@ export default function App() {
             <span className="contact-icon" aria-hidden="true">✉</span>
             <span className="contact-text">Contact us</span>
           </a>
+          <button
+            className="contact-link"
+            type="button"
+            onClick={() => setShowAbout(true)}
+            aria-label="Open About WheatAI"
+          >
+            <span className="contact-icon" aria-hidden="true">ℹ</span>
+            <span className="contact-text">About us</span>
+          </button>
           <button
             className="theme-btn"
             type="button"
@@ -634,6 +687,8 @@ export default function App() {
           setKernelParams={setKm}
         />
       )}
+
+      <AboutModal open={showAbout} onClose={() => setShowAbout(false)} profiles={aboutProfiles} />
 
       {lightbox?.src && (
         <div

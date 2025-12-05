@@ -305,6 +305,7 @@ def run_fhb_field_pipeline(
         results_root=str(base_out),
         input_subdir="SpikeletCrops_30px",
         output_subdir="SpikeletCrops_30px_good",
+        num_workers=max(1, min(4, os.cpu_count() or 1)),
     )
 
     # Use only the lateral-view crops that passed orientation filtering

@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 # Adjust this import to match your folder structure exactly:
 # models/orientationClassification/SpikeClassifier.py
@@ -56,6 +57,7 @@ def move_good_oriented_spikes(
     results_root: str | Path = "./results/spikeDetect",
     input_subdir: str = "SpikeletCrops_30px",
     output_subdir: str = "SpikeletCrops_30px_good",
+    num_workers: int = 1,
 ):
     """
     Classify spike crops from a YOLO+crop run and move only
@@ -86,6 +88,9 @@ def move_good_oriented_spikes(
     output_subdir : str
         Subfolder under run_name where good-oriented spikes are moved
         (default 'SpikeletCrops_30px_good').
+    num_workers : int
+        Number of threads to use for classification. >1 enables parallel
+        predictions to speed up large batches.
     """
 
     results_root = Path(results_root)
@@ -109,6 +114,7 @@ def move_good_oriented_spikes(
     logger.info(f"Source crops:  {source_dir}")
     logger.info(f"Good spikes →  {good_dir}")
     logger.info(f"Classifier model: {model_path}")
+    logger.info(f"Workers: {max(1, num_workers)}")
     logger.info("======================================")
 
     # Init classifier
@@ -119,14 +125,24 @@ def move_good_oriented_spikes(
 
     moved = 0
     skipped = 0
+    worker_count = max(1, num_workers)
 
-    for idx, img_path in enumerate(png_files, start=1):
-        # Read image bytes
-        with img_path.open("rb") as f:
-            img_bytes = f.read()
+    def classify(img_path: Path):
+        try:
+            with img_path.open("rb") as f:
+                img_bytes = f.read()
+            return classifier.predict(img_bytes)
+        except Exception as e:
+            return {"error": str(e)}
 
-        result = classifier.predict(img_bytes)
+    if worker_count == 1:
+        results = [(img_path, classify(img_path)) for img_path in png_files]
+    else:
+        with ThreadPoolExecutor(max_workers=min(worker_count, len(png_files))) as ex:
+            mapped = ex.map(classify, png_files)
+            results = list(zip(png_files, mapped))
 
+    for idx, (img_path, result) in enumerate(results, start=1):
         if "error" in result:
             logger.warning(
                 f"[{idx}/{len(png_files)}] {img_path.name} → ERROR: {result['error']}"

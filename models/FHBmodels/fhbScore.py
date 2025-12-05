@@ -129,6 +129,7 @@ def fhb_detect(
         source=good_spikes_dir,
         imgsz=imgsz,
         conf=conf,
+        agnostic_nms=True,
         save=save_overlays,          # <-- NEW OPTION
         save_txt=True,
         show_labels=False,

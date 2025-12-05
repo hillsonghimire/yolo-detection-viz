@@ -151,7 +151,7 @@ h1{margin:0 0 6px 0}
 .contact-link:hover{border-color:var(--acc);color:var(--acc)}
 .contact-link:focus-visible{outline:2px solid rgba(108,92,231,0.5);outline-offset:4px}
 .contact-icon{
-  font-size:1.8rem;
+  font-size:1.35rem;
   line-height:1;
   display:inline-flex;
   align-items:center;
@@ -256,18 +256,45 @@ h1{margin:0 0 6px 0}
     margin:0 -6px 10px;
     padding:5px 8px;
     min-height:50px;
-    grid-template-columns:1fr;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:center;
     text-align:center;
+    gap:8px;
   }
   .brand,
-  .brand--mirror{justify-content:center;justify-self:center}
-  .brand{gap:12px}
+  .brand--mirror{justify-content:center;justify-self:center;order:1;flex:0 0 auto}
+  .brand{
+    gap:10px;
+    flex:1 1 0;
+    min-width:0;
+    flex-shrink:1;
+  }
+  .brand--mirror{
+    order:2;
+    flex:0 0 auto;
+  }
   .brand-copy{transform:translateY(0)}
-  .header-actions{gap:6px;margin:0 auto;min-width:0;justify-self:center;width:100%;max-width:280px}
-  .contact-link{padding:5px;border-radius:12px;min-width:0}
-  .contact-link--block{width:100%}
+  .brand-tagline{display:none}
+  .header-actions{
+    gap:8px;
+    margin:0 auto;
+    min-width:0;
+    justify-self:center;
+    width:100%;
+    max-width:360px;
+    flex-direction:row;
+    align-items:center;
+    justify-content:center;
+    flex-wrap:wrap;
+    order:3;
+    flex:1 0 100%;
+  }
+  .contact-link{padding:6px 10px;border-radius:12px;min-width:0}
+  .contact-link--block{width:auto;flex:1 1 0}
   .contact-text{display:none}
-  .contact-icon{font-size:1.8rem}
+  .contact-icon{font-size:1.35rem}
   .mode-toggle{min-width:0}
   .model-select{min-width:0}
 }

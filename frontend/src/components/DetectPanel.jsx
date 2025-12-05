@@ -236,8 +236,8 @@ export default function DetectPanel({
     } else if (model === 'spikelet') {
       if (num === 0) return 'spikelet';
     } else if (model === 'fdk') {
-      if (num === 1) return 'healthy';
-      if (num === 0) return 'infected';
+      if (num === 1) return 'Healthy Kernels';
+      if (num === 0) return 'Infected Kernels';
     } else if (model === 'fhb') {
       // Corrected: FHB labels were flipped
       if (num === 0) return 'Healthy Spikelets';
@@ -282,8 +282,8 @@ export default function DetectPanel({
     const legendLabel = (k) => {
       if (model === 'fdk') {
         const s = String(k);
-        if (s === '0') return 'infected';
-        if (s === '1') return 'healthy';
+        if (s === '0') return 'Infected Kernels';
+        if (s === '1') return 'Healthy Kernels';
         return s;
       }
       if (model === 'fhb') {
@@ -332,6 +332,15 @@ export default function DetectPanel({
     if (model !== 'fhb') return null;
     const healthy = (counts?.f?.get('0') ?? counts?.f?.get(0) ?? 0);
     const infected = (counts?.f?.get('1') ?? counts?.f?.get(1) ?? 0);
+    const total = healthy + infected;
+    const rate = total ? (infected / total) * 100 : 0;
+    return { healthy, infected, rate };
+  })();
+
+  const fdkCounts = (() => {
+    if (model !== 'fdk') return null;
+    const healthy = (counts?.f?.get('1') ?? counts?.f?.get(1) ?? 0);
+    const infected = (counts?.f?.get('0') ?? counts?.f?.get(0) ?? 0);
     const total = healthy + infected;
     const rate = total ? (infected / total) * 100 : 0;
     return { healthy, infected, rate };
@@ -604,6 +613,11 @@ export default function DetectPanel({
             {model === 'fhb' && (
               <span className="legend-badge">
                 Disease Spikelet Rate (DSR): {fhbCounts ? fhbCounts.rate.toFixed(1) : "0.0"}%
+              </span>
+            )}
+            {model === 'fdk' && (
+              <span className="legend-badge">
+                %FDK: {fdkCounts ? fdkCounts.rate.toFixed(1) : "0.0"}%
               </span>
             )}
             <span className="legend-badge">Total: {(counts?.f ? Array.from(counts.f.values()).reduce((a,b)=>a+b,0) : (detections?.length||0))}</span>

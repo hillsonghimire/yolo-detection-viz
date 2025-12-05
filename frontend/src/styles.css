@@ -105,6 +105,7 @@ h1{margin:0 0 6px 0}
 @media (max-width:540px){.app-logo{height:64px}}
 .brand-copy{display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center;transform:translateY(-2px)}
 .brand-name{font-size:1.55rem;font-weight:700;letter-spacing:-0.02em;color:transparent;background:linear-gradient(135deg,#22c55e,#2563eb);-webkit-background-clip:text;background-clip:text}
+.brand-version{font-size:0.52em;margin-left:4px;color:var(--muted);font-weight:600;font-style:italic;vertical-align:super}
 .brand-tagline{font-size:.78rem;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase}
 .header-actions{
   display:flex;

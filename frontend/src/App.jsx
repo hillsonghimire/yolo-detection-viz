@@ -305,7 +305,10 @@ export default function App() {
             <img className="app-logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
           </a>
           <div className="brand-copy">
-            <span className="brand-name">WheatAI</span>
+            <span className="brand-name">
+              WheatAI
+              <sup className="brand-version"><em>v1.0</em></sup>
+            </span>
             <span className="brand-tagline">AI-based wheat assessment</span>
           </div>
         </div>

@@ -4,8 +4,11 @@ import uuid
 import json
 import shutil
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
+
+import pandas as pd
 
 from django.conf import settings
 
@@ -170,6 +173,76 @@ def _zip_paths(sources: List[Path], dest_dir: Path, zip_name: str) -> Path | Non
     return zip_path
 
 
+def _image_name_from_crop_stem(crop_stem: str) -> str:
+    parts = crop_stem.split("_")
+    return "_".join(parts[:-2]) if len(parts) >= 3 else crop_stem
+
+
+def _spikelet_summary(
+    run_root: Path,
+    crops_subdir: str,
+    infected_classes: set[int],
+    non_infected_classes: set[int],
+) -> tuple[List[Dict[str, Any]], float | None]:
+    crops_dir = run_root / crops_subdir
+    labels_dir = crops_dir / "FHB_labels" / "pred" / "labels"
+    if not crops_dir.exists() or not labels_dir.exists():
+        return [], None
+
+    rows: List[Dict[str, Any]] = []
+    severity_values: List[float] = []
+    per_image_counts: Dict[str, int] = defaultdict(int)
+
+    for crop_path in sorted(crops_dir.glob("*.png")):
+        crop_stem = crop_path.stem
+        image_name = _image_name_from_crop_stem(crop_stem)
+
+        per_image_counts[image_name] += 1
+        spike_idx = per_image_counts[image_name]
+        combined_id = f"{image_name}_spikelet{spike_idx:03d}"
+        label_path = labels_dir / f"{crop_stem}.txt"
+
+        infected = 0
+        healthy = 0
+        if label_path.exists():
+            try:
+                with open(label_path, "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if not parts:
+                            continue
+                        try:
+                            cls_id = int(parts[0])
+                        except ValueError:
+                            continue
+                        if cls_id in infected_classes:
+                            infected += 1
+                        elif cls_id in non_infected_classes:
+                            healthy += 1
+            except Exception:
+                pass
+
+        total = infected + healthy
+        severity = round((infected / total) * 100, 1) if total else 0.0
+        severity_values.append(severity)
+        rows.append({
+            "image_name": crop_path.name,
+            "source_image": image_name,
+            "spikelet_id": spike_idx,
+            "image_id_spikeletID": combined_id,
+            "num_spikes": 1,
+            "healthy": healthy,
+            "infected": infected,
+            "severity": severity,
+        })
+
+    if not rows:
+        return [], None
+
+    mean_severity = round(sum(severity_values) / len(severity_values), 1) if severity_values else None
+    return rows, mean_severity
+
+
 def run_fhb_field_pipeline(
     files: Sequence[Any],
     run_name: str | None = None,
@@ -234,30 +307,29 @@ def run_fhb_field_pipeline(
         output_subdir="SpikeletCrops_30px_good",
     )
 
-    # Choose good crops; if none, fall back to all crops
+    # Use only the lateral-view crops that passed orientation filtering
     good_subdir = "SpikeletCrops_30px_good"
-    good_dir = run_root / good_subdir
-    if not any(good_dir.glob("*.png")):
-        fallback_dir = run_root / "SpikeletCrops_30px"
-        if any(fallback_dir.glob("*.png")):
-            good_subdir = "SpikeletCrops_30px"
 
     # Stage 3: FHB detection + aggregation
+    non_infected_classes = {0}
+    infected_classes = {1}
+
     df, excel_path = fhb_detect(
         run_name=run,
         results_root=str(base_out),
         good_spikes_subdir=good_subdir,
         fhb_model_path=str(weights["fhb_detector"]),
-        non_infected_classes={0},
-        infected_classes={1},
+        non_infected_classes=non_infected_classes,
+        infected_classes=infected_classes,
         imgsz=600,
         conf=0.25,
         save_overlays=True,
         output_excel_name="FHB_summary_per_image.xlsx",
     )
 
-    summary_rows: List[Dict[str, Any]] = []
-    if df is not None:
+    summary_rows, mean_spikelet_severity = _spikelet_summary(run_root, good_subdir, infected_classes, non_infected_classes)
+
+    if not summary_rows and df is not None:
         try:
             df = df.copy()
             healthy = df.get("fhb_noninfected_spikelets") if "fhb_noninfected_spikelets" in df else df.get("healthy")
@@ -267,9 +339,9 @@ def run_fhb_field_pipeline(
                 df["FHB_severity"] = (infected.astype(float) / denom * 100).round(1)
             else:
                 df["FHB_severity"] = 0.0
-            if excel_path:
+            if mean_spikelet_severity is None and "FHB_severity" in df:
                 try:
-                    df.to_excel(excel_path, index=False)
+                    mean_spikelet_severity = round(float(df["FHB_severity"].astype(float).mean()), 1)
                 except Exception:
                     pass
         except Exception:
@@ -288,6 +360,29 @@ def run_fhb_field_pipeline(
                 summary_rows = df.to_dict(orient="records")  # type: ignore[arg-type]
             except Exception:
                 summary_rows = []
+
+    summary_with_average: List[Dict[str, Any]] = list(summary_rows)
+    total_spikes = len(summary_rows)
+    if total_spikes and mean_spikelet_severity is not None:
+        summary_with_average.append({
+            "image_name": "Average severity",
+            "source_image": None,
+            "spikelet_id": None,
+            "image_id_spikeletID": None,
+            "num_spikes": total_spikes,
+            "healthy": None,
+            "infected": None,
+            "severity": mean_spikelet_severity,
+            "is_average": True,
+        })
+
+    if summary_with_average:
+        excel_target = excel_path or (run_root / "FHB_summary_per_image.xlsx")
+        try:
+            pd.DataFrame(summary_with_average).to_excel(excel_target, index=False)
+            excel_path = excel_target
+        except Exception:
+            pass
 
     excel_copy_name = None
     excel_copy_path = None
@@ -344,14 +439,14 @@ def run_fhb_field_pipeline(
                 [run_root / "SpikeletCrops_30px_good"],
                 exclude_keywords={"FHB_labels", "pred", "labels"},
             )
-            downloads.append({"type": "crops_good", "label": "Good orientation spikes", "path": rel, "previews": previews})
+            downloads.append({"type": "crops_good", "label": "Lateral View Spikes", "path": rel, "previews": previews})
 
     crops_bad_zip = _zip_directory(run_root / "SpikeletCrops_30px", zip_out_dir, f"{run}_crops_bad_orientation.zip")
     if crops_bad_zip:
         rel = _rel_to_media(crops_bad_zip)
         if rel:
             previews = _sample_images([run_root / "SpikeletCrops_30px"], exclude_keywords={"FHB_labels", "pred", "labels"})
-            downloads.append({"type": "crops_bad", "label": "Bad orientation spikes", "path": rel, "previews": previews})
+            downloads.append({"type": "crops_bad", "label": "Frontal View Spikes", "path": rel, "previews": previews})
 
     fhb_overlays_zip = _zip_directory(overlay_dir, zip_out_dir, f"{run}_fhb_overlays.zip")
     if fhb_overlays_zip:
@@ -370,7 +465,7 @@ def run_fhb_field_pipeline(
     payload: Dict[str, Any] = {
         "run_name": run,
         "inputs": saved_files,
-        "summary": summary_rows,
+        "summary": summary_with_average,
         "results_root": _rel_to_media(run_root),
         "excel_name": excel_copy_name,
         "excel_rel_path": _rel_to_media(excel_copy_path) if excel_copy_path else None,
@@ -378,5 +473,6 @@ def run_fhb_field_pipeline(
         "overlays": overlay_files,
         "downloads": downloads,
         "used_good_dir": good_subdir,
+        "mean_spikelet_severity": mean_spikelet_severity,
     }
     return payload

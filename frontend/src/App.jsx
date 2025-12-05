@@ -308,31 +308,41 @@ export default function App() {
         </div>
         <div className="header-actions">
           <a
-            className="contact-link"
+            className="contact-link contact-link--block"
             href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
             aria-label="Email WheatAI team"
           >
             <span className="contact-icon" aria-hidden="true">✉</span>
-            <span className="contact-text">Contact us</span>
+            <span className="contact-text">Contact</span>
           </a>
           <button
-            className="contact-link"
+            className="contact-link contact-link--block"
             type="button"
             onClick={() => setShowAbout(true)}
             aria-label="Open About WheatAI"
           >
             <span className="contact-icon" aria-hidden="true">ℹ</span>
-            <span className="contact-text">About us</span>
+            <span className="contact-text">About</span>
           </button>
-          <button
-            className="theme-btn"
-            type="button"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            aria-label="Toggle theme"
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {theme === "dark" ? "☾" : "☀"}
-          </button>
+          <div className="contact-link contact-link--block theme-toggle" role="group" aria-label="Toggle between day and night theme">
+            <span className="theme-toggle__icon" aria-hidden="true">☀</span>
+            <label className="theme-toggle__track">
+              <input
+                className="theme-toggle__input"
+                type="checkbox"
+                checked={theme === "dark"}
+                onChange={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
+              />
+              <span className="theme-toggle__thumb" aria-hidden="true" />
+            </label>
+            <span className="theme-toggle__icon" aria-hidden="true">☾</span>
+          </div>
+        </div>
+        <div className="brand brand--mirror">
+          <div className="brand-logo brand-logo--mirror">
+            <img className="app-logo app-logo--winter" src="/logo/WinterWheatLogo.png" alt="Winter Wheat logo" />
+          </div>
         </div>
       </div>
       {/* <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p> */}
@@ -553,6 +563,13 @@ export default function App() {
                             <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
                             <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>
                               {(() => {
+                                const severityValue = row.severity ?? row.FHB_severity;
+                                if (severityValue !== undefined && severityValue !== null) {
+                                  const pct = Number(severityValue);
+                                  if (!Number.isNaN(pct)) {
+                                    return `${pct.toFixed(1)}%`;
+                                  }
+                                }
                                 const healthy = Number(row.fhb_noninfected_spikelets ?? row.healthy ?? 0);
                                 const infected = Number(row.fhb_infected_spikelets ?? row.infected ?? 0);
                                 const total = healthy + infected;

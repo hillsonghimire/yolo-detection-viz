@@ -153,8 +153,8 @@ def move_good_oriented_spikes(
 
     logger.info("======================================")
     logger.info("Good-orientation spike classification completed")
-    logger.info(f"Moved GOOD spikes:    {moved}")
-    logger.info(f"Ignored / BAD spikes: {skipped}")
+    logger.info(f"Moved Lateral (GOOD) spikes:    {moved}")
+    logger.info(f"Ignored / Frontal (BAD) spikes: {skipped}")
     logger.info(f"Good spikes folder:   {good_dir}")
     logger.info(
         f"Log written to:       {(run_dir / 'spike_classification.log').resolve()}"

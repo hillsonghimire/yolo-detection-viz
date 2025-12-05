@@ -68,10 +68,10 @@ h1{margin:0 0 6px 0}
 .sub{color:var(--muted);margin:0 0 20px 0}
 
 .header{
-  display:flex;
+  display:grid;
+  grid-template-columns:1fr auto auto;
   align-items:center;
-  justify-content:space-between;
-  gap:10px;
+  gap:16px;
   padding:3px 10px;
   margin:0 -10px 10px;
   background:rgba(255,255,255,0.22);
@@ -90,11 +90,14 @@ h1{margin:0 0 6px 0}
   border-bottom:1px solid rgba(124,134,255,0.18);
   backdrop-filter:blur(14px) saturate(135%);
 }
-.brand{display:flex;align-items:center;gap:16px;min-width:0}
+.brand{display:flex;align-items:center;gap:16px;min-width:0;justify-self:start}
+.brand--mirror{justify-content:flex-end;justify-self:end}
 .brand-logo{display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:0;transition:transform .2s ease}
 .brand-logo:hover{transform:translateY(-2px)}
 .brand-logo:focus-visible{outline:2px solid rgba(108,92,231,0.45);outline-offset:4px;border-radius:18px}
-.app-logo{height:96px;width:auto;display:block;border-radius:16px;filter:drop-shadow(0 8px 18px rgba(15,23,42,0.12))}
+.app-logo{height:96px;width:auto;display:block;border-radius:0;filter:drop-shadow(0 8px 18px rgba(15,23,42,0.12))}
+.brand-logo--mirror{pointer-events:none}
+.app-logo--winter{object-fit:contain}
 @media (max-width:1200px){.app-logo{height:88px}}
 @media (max-width:1024px){.app-logo{height:80px}}
 @media (max-width:768px){.app-logo{height:72px}}
@@ -102,17 +105,91 @@ h1{margin:0 0 6px 0}
 .brand-copy{display:flex;flex-direction:column;gap:2px;min-width:0;justify-content:center;transform:translateY(-2px)}
 .brand-name{font-size:1.55rem;font-weight:700;letter-spacing:-0.02em;color:transparent;background:linear-gradient(135deg,#22c55e,#2563eb);-webkit-background-clip:text;background-clip:text}
 .brand-tagline{font-size:.78rem;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase}
-.header-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
-.contact-link{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid rgba(108,92,231,0.28);background:transparent;color:var(--fg);text-decoration:none;font-weight:600;letter-spacing:-0.01em;transition:all .2s ease}
-.contact-link.button, button.contact-link{appearance:none;-webkit-appearance:none;background:transparent;cursor:pointer;font:inherit}
+.header-actions{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  align-items:stretch;
+  justify-content:flex-start;
+  margin:0;
+  justify-self:end;
+  min-width:140px;
+}
+.contact-link{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:3px 12px;
+  border-radius:12px;
+  border:1px solid rgba(108,92,231,0.28);
+  background:transparent;
+  color:var(--fg);
+  text-decoration:none;
+  font-family:inherit;
+  font-weight:600;
+  font-size:0.85rem;
+  letter-spacing:-0.01em;
+  transition:all .2s ease;
+}
+.contact-link--block{
+  width:82%;
+  justify-content:center;
+  text-align:center;
+  align-self:center;
+}
+.contact-link.button, button.contact-link{
+  appearance:none;
+  -webkit-appearance:none;
+  background:transparent;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:inherit;
+  line-height:inherit;
+  color:inherit;
+}
 .contact-link:hover{border-color:var(--acc);color:var(--acc)}
 .contact-link:focus-visible{outline:2px solid rgba(108,92,231,0.5);outline-offset:4px}
-.contact-icon{font-size:0.95rem;line-height:1}
+.contact-icon{font-size:0.9rem;line-height:1}
 .contact-text{display:inline}
-.theme-btn{background:transparent;color:var(--fg);border:1px solid rgba(108,92,231,0.4);padding:6px 10px;border-radius:999px;cursor:pointer;font-size:0.95rem;line-height:1;transition:all .2s ease;height:32px;min-width:32px;display:inline-flex;align-items:center;justify-content:center}
-.theme-btn:hover{background:rgba(108,92,231,0.08);border-color:var(--acc)}
-.theme-btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-
+.theme-toggle{
+  padding:1px 12px;
+  gap:8px;
+  justify-content:space-between;
+}
+.theme-toggle__icon{font-size:0.95rem;line-height:1}
+.theme-toggle__track{
+  position:relative;
+  width:46px;
+  height:16px;
+  border-radius:999px;
+  background:rgba(108,92,231,0.16);
+  border:1px solid rgba(108,92,231,0.3);
+  display:inline-flex;
+  align-items:center;
+  cursor:pointer;
+  transition:all .2s ease;
+}
+.theme-toggle__track:focus-within{outline:2px solid rgba(108,92,231,0.4);outline-offset:3px}
+.theme-toggle__input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+.theme-toggle__thumb{
+  position:absolute;
+  top:1px;
+  left:2px;
+  width:12px;
+  height:12px;
+  border-radius:999px;
+  background:var(--fg);
+  transform:translateX(0);
+  transition:transform .2s ease, background .2s ease, box-shadow .2s ease;
+  box-shadow:0 4px 12px rgba(15,23,42,0.15);
+}
+.theme-toggle__input:checked + .theme-toggle__thumb{transform:translateX(26px)}
+[data-theme="dark"] .theme-toggle__track{background:rgba(124,134,255,0.25);border-color:rgba(124,134,255,0.45)}
+[data-theme="dark"] .theme-toggle__thumb{background:#f8fafc;box-shadow:0 4px 12px rgba(0,0,0,0.35)}
 [data-theme="dark"] .model-select{background:transparent}
 .model-select{display:flex;align-items:center;gap:12px;padding:8px 0;border-radius:8px;background:transparent;border:none;backdrop-filter:none;box-shadow:none;flex:0 0 auto;min-width:0}
 .model-select__label{letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
@@ -168,11 +245,20 @@ h1{margin:0 0 6px 0}
 [data-theme="dark"] .mode-toggle__option.active{box-shadow:none}
 
 @media (max-width:640px){
-  .header{margin:0 -6px 10px;padding:5px 8px;min-height:50px}
+  .header{
+    margin:0 -6px 10px;
+    padding:5px 8px;
+    min-height:50px;
+    grid-template-columns:1fr;
+    text-align:center;
+  }
+  .brand,
+  .brand--mirror{justify-content:center;justify-self:center}
   .brand{gap:12px}
   .brand-copy{transform:translateY(0)}
-  .header-actions{gap:6px}
-  .contact-link{padding:6px;border-radius:999px;min-width:36px;justify-content:center}
+  .header-actions{gap:6px;margin:0 auto;min-width:0;justify-self:center;width:100%;max-width:280px}
+  .contact-link{padding:5px;border-radius:12px;min-width:0}
+  .contact-link--block{width:100%}
   .contact-text{display:none}
   .contact-icon{font-size:1rem}
   .mode-toggle{min-width:0}

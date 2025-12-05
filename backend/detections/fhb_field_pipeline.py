@@ -368,14 +368,19 @@ def run_fhb_field_pipeline(
         summary_with_average.append({
             "image_name": "Average severity",
             "source_image": None,
-            "spikelet_id": None,
-            "image_id_spikeletID": None,
-            "num_spikes": total_spikes,
             "healthy": None,
             "infected": None,
             "severity": mean_spikelet_severity,
-            "is_average": True,
         })
+
+    # Strip unnecessary columns before returning or saving
+    def _strip_columns(row: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned = dict(row)
+        for key in ("spikelet_id", "image_id_spikeletID", "num_spikes", "is_average"):
+            cleaned.pop(key, None)
+        return cleaned
+
+    summary_with_average = [_strip_columns(r) for r in summary_with_average]
 
     if summary_with_average:
         excel_target = excel_path or (run_root / "FHB_summary_per_image.xlsx")

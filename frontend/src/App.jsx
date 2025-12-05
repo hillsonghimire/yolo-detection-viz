@@ -559,7 +559,6 @@ export default function App() {
                       <thead>
                         <tr>
                           <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Image</th>
-                          <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Spikes (selected)</th>
                           <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Healthy spikelets</th>
                           <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Infected spikelets</th>
                           <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>FHB severity</th>
@@ -573,7 +572,6 @@ export default function App() {
                           return (
                             <tr key={`${label}-${idx}`}>
                               <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", ...strongStyle }}>{label}</td>
-                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.num_spikes ?? row.spikes ?? "-"}</td>
                               <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
                               <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
                               <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>

@@ -39,6 +39,7 @@ export default function App() {
   const [selectedDownloadKey, setSelectedDownloadKey] = useState(null);
   const [pipelineStage, setPipelineStage] = useState(null); // 0=spike,1=orientation,2=fhb
   const [previewLimit, setPreviewLimit] = useState({});
+  const [summaryLimit, setSummaryLimit] = useState(10);
   const [showAbout, setShowAbout] = useState(false);
   const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
   const isFhbField = model === "fhb_field";
@@ -108,9 +109,11 @@ export default function App() {
       const firstKey = fhbFieldResult.downloads[0].type || fhbFieldResult.downloads[0].label || null;
       setSelectedDownloadKey(firstKey);
       setPreviewLimit({});
+      setSummaryLimit(10);
     } else {
       setSelectedDownloadKey(null);
       setPreviewLimit({});
+      setSummaryLimit(10);
     }
   }, [fhbFieldResult]);
 
@@ -470,7 +473,7 @@ export default function App() {
                                   {d.label || d.type || `Bundle ${idx + 1}`}
                                 </button>
                                 <a
-                                  className="btn"
+                                  className="btn soft"
                                   href={downloadMedia(d.path)}
                                   download
                                   title="Download"
@@ -490,7 +493,7 @@ export default function App() {
                               <div className="small" style={{ color: 'var(--muted)' }}>
                                 {active.label || active.type || "Selected bundle"}
                               </div>
-                              <a className="btn" href={downloadMedia(active.path)} download>
+                              <a className="btn soft" href={downloadMedia(active.path)} download>
                                 ⬇ Download
                               </a>
                             </div>
@@ -542,7 +545,15 @@ export default function App() {
                     </div>
                   );
                 })() : null}
-                {Array.isArray(fhbFieldResult.summary) && fhbFieldResult.summary.length > 0 ? (
+                {Array.isArray(fhbFieldResult.summary) && fhbFieldResult.summary.length > 0 ? (() => {
+                  const summaryRows = fhbFieldResult.summary || [];
+                  const avgIdx = summaryRows.findIndex((row) => (row.image_name || row.image || "").toLowerCase() === "average severity");
+                  let visibleSummary = summaryRows.slice(0, summaryLimit);
+                  if (avgIdx >= 0 && !visibleSummary.includes(summaryRows[avgIdx])) {
+                    visibleSummary = [...visibleSummary, summaryRows[avgIdx]];
+                  }
+                  const hasMoreSummary = summaryRows.length > summaryLimit;
+                  return (
                   <div className="table-wrap" style={{ overflowX: "auto" }}>
                     <table className="small" style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
@@ -555,35 +566,54 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {fhbFieldResult.summary.map((row, idx) => (
-                          <tr key={idx}>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{row.image_name || row.image || `image_${idx + 1}`}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.num_spikes ?? row.spikes ?? "-"}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>
-                              {(() => {
-                                const severityValue = row.severity ?? row.FHB_severity;
-                                if (severityValue !== undefined && severityValue !== null) {
-                                  const pct = Number(severityValue);
-                                  if (!Number.isNaN(pct)) {
-                                    return `${pct.toFixed(1)}%`;
+                        {visibleSummary.map((row, idx) => {
+                          const label = row.image_name || row.image || `image_${idx + 1}`;
+                          const isAverageRow = (row.image_name || row.image || "").toLowerCase() === "average severity";
+                          const strongStyle = isAverageRow ? { fontWeight: 800, color: "#000" } : null;
+                          return (
+                            <tr key={`${label}-${idx}`}>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", ...strongStyle }}>{label}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.num_spikes ?? row.spikes ?? "-"}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>
+                                {(() => {
+                                  const severityValue = row.severity ?? row.FHB_severity;
+                                  if (severityValue !== undefined && severityValue !== null) {
+                                    const pct = Number(severityValue);
+                                    if (!Number.isNaN(pct)) {
+                                      return `${pct.toFixed(1)}%`;
+                                    }
                                   }
-                                }
-                                const healthy = Number(row.fhb_noninfected_spikelets ?? row.healthy ?? 0);
-                                const infected = Number(row.fhb_infected_spikelets ?? row.infected ?? 0);
-                                const total = healthy + infected;
-                                if (!total) return "0.0%";
-                                const pct = (infected / total) * 100;
-                                return `${pct.toFixed(1)}%`;
-                              })()}
+                                  const healthy = Number(row.fhb_noninfected_spikelets ?? row.healthy ?? 0);
+                                  const infected = Number(row.fhb_infected_spikelets ?? row.infected ?? 0);
+                                  const total = healthy + infected;
+                                  if (!total) return "0.0%";
+                                  const pct = (infected / total) * 100;
+                                  return `${pct.toFixed(1)}%`;
+                                })()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {hasMoreSummary ? (
+                          <tr>
+                            <td colSpan={5} style={{ padding: "10px 8px", textAlign: "center", borderBottom: "1px solid var(--line)" }}>
+                              <button
+                                type="button"
+                                className="btn outline"
+                                onClick={() => setSummaryLimit((prev) => Math.min(summaryRows.length, prev + 10))}
+                              >
+                                Show more (+10) ...
+                              </button>
                             </td>
                           </tr>
-                        ))}
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
-                ) : (
+                );
+                })() : (
                   <div className="small" style={{ color: 'var(--muted)' }}>
                     Pipeline finished but no spikelets were scored in the crops.
                   </div>
@@ -591,7 +621,7 @@ export default function App() {
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   {fhbFieldResult.excel_name && (
                     <a
-                      className="btn"
+                      className="btn soft"
                       href={downloadUrl('excel', fhbFieldResult.excel_name)}
                       download={fhbFieldResult.excel_name}
                     >

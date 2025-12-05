@@ -341,6 +341,30 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px;background:tr
 .btn:hover{background:var(--acc-600); box-shadow:0 8px 20px rgba(92, 92, 231, 0.25)}
 .btn:focus-visible{outline:2px solid #b5b2ff; outline-offset:2px}
 .btn:disabled{opacity:.55;cursor:not-allowed; box-shadow:none}
+[data-theme="light"] .btn.soft,
+:root .btn.soft{
+  background:transparent;
+  color:var(--acc);
+  border:1px solid rgba(108,92,231,0.45);
+  box-shadow:none;
+}
+[data-theme="light"] .btn.soft:hover,
+:root .btn.soft:hover{
+  background:rgba(108,92,231,0.12);
+  border-color:var(--acc);
+  box-shadow:none;
+}
+[data-theme="dark"] .btn.soft{
+  background:transparent;
+  color:#cbd5ff;
+  border:1px solid rgba(124,134,255,0.6);
+  box-shadow:none;
+}
+[data-theme="dark"] .btn.soft:hover{
+  background:rgba(124,134,255,0.14);
+  border-color:var(--acc);
+  box-shadow:none;
+}
 [data-theme="light"] .btn.ghost,
 :root .btn.ghost{
   background:rgba(15,23,42,0.12);

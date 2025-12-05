@@ -96,7 +96,8 @@ h1{margin:0 0 6px 0}
 .brand-logo:hover{transform:translateY(-2px)}
 .brand-logo:focus-visible{outline:2px solid rgba(108,92,231,0.45);outline-offset:4px;border-radius:18px}
 .app-logo{height:96px;width:auto;display:block;border-radius:0;filter:drop-shadow(0 8px 18px rgba(15,23,42,0.12))}
-.brand-logo--mirror{pointer-events:none}
+.brand-logo--mirror{pointer-events:none;border-radius:0}
+.brand-logo--mirror .app-logo{border-radius:0;background:#fff}
 .app-logo--winter{object-fit:contain}
 @media (max-width:1200px){.app-logo{height:88px}}
 @media (max-width:1024px){.app-logo{height:80px}}
@@ -149,7 +150,13 @@ h1{margin:0 0 6px 0}
 }
 .contact-link:hover{border-color:var(--acc);color:var(--acc)}
 .contact-link:focus-visible{outline:2px solid rgba(108,92,231,0.5);outline-offset:4px}
-.contact-icon{font-size:0.9rem;line-height:1}
+.contact-icon{
+  font-size:1.8rem;
+  line-height:1;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
 .contact-text{display:inline}
 .theme-toggle{
   padding:1px 12px;
@@ -260,7 +267,7 @@ h1{margin:0 0 6px 0}
   .contact-link{padding:5px;border-radius:12px;min-width:0}
   .contact-link--block{width:100%}
   .contact-text{display:none}
-  .contact-icon{font-size:1rem}
+  .contact-icon{font-size:1.8rem}
   .mode-toggle{min-width:0}
   .model-select{min-width:0}
 }

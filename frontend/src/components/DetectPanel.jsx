@@ -240,8 +240,8 @@ export default function DetectPanel({
       if (num === 0) return 'infected';
     } else if (model === 'fhb') {
       // Corrected: FHB labels were flipped
-      if (num === 0) return 'healthy';
-      if (num === 1) return 'infected';
+      if (num === 0) return 'Healthy Spikelets';
+      if (num === 1) return 'Infected Spikelets';
     }
     return k;
   };
@@ -286,6 +286,12 @@ export default function DetectPanel({
         if (s === '1') return 'healthy';
         return s;
       }
+      if (model === 'fhb') {
+        const s = String(k);
+        if (s === '0') return 'Healthy Spikelets';
+        if (s === '1') return 'Infected Spikelets';
+        return displayName(k);
+      }
       return displayName(k);
     };
 
@@ -321,6 +327,15 @@ export default function DetectPanel({
 
     return { classList: order.map((k) => ({ key: k, ...seen.get(k) })), colorOf, counts: { f, r } };
   }, [detections, allDetections, model]);
+
+  const fhbCounts = (() => {
+    if (model !== 'fhb') return null;
+    const healthy = (counts?.f?.get('0') ?? counts?.f?.get(0) ?? 0);
+    const infected = (counts?.f?.get('1') ?? counts?.f?.get(1) ?? 0);
+    const total = healthy + infected;
+    const rate = total ? (infected / total) * 100 : 0;
+    return { healthy, infected, rate };
+  })();
 
   useEffect(() => {
     const cvs = canvasRef.current;
@@ -576,18 +591,22 @@ export default function DetectPanel({
               const keyStr = String(it.key);
               const name = model === 'fdk' ? (keyStr === '0' ? 'infected' : (keyStr === '1' ? 'healthy' : keyStr)) : it.name;
               const shown = (counts?.f?.get(it.key) || 0);
-              const total = (counts?.r?.get(it.key) || 0);
               return (
                 <div key={it.key} className="legend-item">
                   <span className="legend-swatch" style={{ background: it.color.chip }} />
                   <span className="legend-name">{name}</span>
-                  <span className="legend-count">{shown} / {total}</span>
+                  <span className="legend-count">{shown}</span>
                 </div>
               );
             })}
           </div>
           <div className="legend-meta">
-            <span className="legend-badge">Total: {(counts?.f ? Array.from(counts.f.values()).reduce((a,b)=>a+b,0) : (detections?.length||0))} / {(counts?.r ? Array.from(counts.r.values()).reduce((a,b)=>a+b,0) : (allDetections?.length||0))}</span>
+            {model === 'fhb' && (
+              <span className="legend-badge">
+                Disease Spikelet Rate (DSR): {fhbCounts ? fhbCounts.rate.toFixed(1) : "0.0"}%
+              </span>
+            )}
+            <span className="legend-badge">Total: {(counts?.f ? Array.from(counts.f.values()).reduce((a,b)=>a+b,0) : (detections?.length||0))}</span>
             {meta?.image_width && meta?.image_height && (
               <span className="legend-badge">Source: {meta.image_width}×{meta.image_height}</span>
             )}

@@ -158,7 +158,7 @@ export default function App() {
     [raw, conf]
   );
 
-  // Per-class counts for filtered (left of slash) and all raw (right of slash)
+  // Keep filtered detections separate from raw results for slider-based filtering
   const fallbackWidth = 420;
   const fallbackHeight = Math.round(fallbackWidth * 0.75);
   const placeholderWidth = Math.round(disp?.width || fallbackWidth);

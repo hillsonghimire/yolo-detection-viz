@@ -362,16 +362,66 @@ def run_fhb_field_pipeline(
             except Exception:
                 summary_rows = []
 
-    summary_with_average: List[Dict[str, Any]] = list(summary_rows)
-    total_spikes = len(summary_rows)
-    if total_spikes and mean_spikelet_severity is not None:
-        summary_with_average.append({
-            "image_name": "Average severity",
-            "source_image": None,
-            "healthy": None,
-            "infected": None,
-            "severity": mean_spikelet_severity,
-        })
+    def _to_number(val: Any) -> float | None:
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            return None
+        return num
+
+    # Drop any upstream aggregate rows and recompute incidence/severity/index
+    aggregate_labels = {"average severity", "incidence %", "severity", "disease index"}
+    base_rows: List[Dict[str, Any]] = []
+    for row in summary_rows:
+        name = str(row.get("image_name") or row.get("image") or "").strip().lower()
+        if name in aggregate_labels:
+            continue
+        base_rows.append(row)
+
+    total_spikes = len(base_rows)
+    positive_severity: List[float] = []
+    for row in base_rows:
+        sev = _to_number(row.get("severity") or row.get("FHB_severity") or row.get("fhb_severity"))
+        if sev is None:
+            healthy = _to_number(row.get("fhb_noninfected_spikelets") or row.get("healthy"))
+            infected = _to_number(row.get("fhb_infected_spikelets") or row.get("infected"))
+            total = (healthy or 0.0) + (infected or 0.0)
+            if total > 0:
+                sev = ((infected or 0.0) / total) * 100.0
+        if sev is None:
+            continue
+        if sev > 0:
+            positive_severity.append(sev)
+
+    incidence_pct = round((len(positive_severity) / total_spikes) * 100, 1) if total_spikes else 0.0
+    avg_severity_pos = round(sum(positive_severity) / len(positive_severity), 1) if positive_severity else 0.0
+    disease_index = round((avg_severity_pos * incidence_pct) / 100, 1) if total_spikes else 0.0
+
+    summary_with_metrics: List[Dict[str, Any]] = list(base_rows)
+    if total_spikes:
+        summary_with_metrics.extend([
+            {
+                "image_name": "Incidence %",
+                "source_image": None,
+                "healthy": None,
+                "infected": None,
+                "severity": incidence_pct,
+            },
+            {
+                "image_name": "Severity",
+                "source_image": None,
+                "healthy": None,
+                "infected": None,
+                "severity": avg_severity_pos,
+            },
+            {
+                "image_name": "Disease Index",
+                "source_image": None,
+                "healthy": None,
+                "infected": None,
+                "severity": disease_index,
+            },
+        ])
 
     # Strip unnecessary columns before returning or saving
     def _strip_columns(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -380,12 +430,12 @@ def run_fhb_field_pipeline(
             cleaned.pop(key, None)
         return cleaned
 
-    summary_with_average = [_strip_columns(r) for r in summary_with_average]
+    summary_with_metrics = [_strip_columns(r) for r in summary_with_metrics]
 
-    if summary_with_average:
+    if summary_with_metrics:
         excel_target = excel_path or (run_root / "FHB_summary_per_image.xlsx")
         try:
-            pd.DataFrame(summary_with_average).to_excel(excel_target, index=False)
+            pd.DataFrame(summary_with_metrics).to_excel(excel_target, index=False)
             excel_path = excel_target
         except Exception:
             pass
@@ -471,7 +521,7 @@ def run_fhb_field_pipeline(
     payload: Dict[str, Any] = {
         "run_name": run,
         "inputs": saved_files,
-        "summary": summary_with_average,
+        "summary": summary_with_metrics,
         "results_root": _rel_to_media(run_root),
         "excel_name": excel_copy_name,
         "excel_rel_path": _rel_to_media(excel_copy_path) if excel_copy_path else None,

@@ -550,12 +550,50 @@ export default function App() {
                 })() : null}
                 {Array.isArray(fhbFieldResult.summary) && fhbFieldResult.summary.length > 0 ? (() => {
                   const summaryRows = fhbFieldResult.summary || [];
-                  const avgIdx = summaryRows.findIndex((row) => (row.image_name || row.image || "").toLowerCase() === "average severity");
-                  let visibleSummary = summaryRows.slice(0, summaryLimit);
-                  if (avgIdx >= 0 && !visibleSummary.includes(summaryRows[avgIdx])) {
-                    visibleSummary = [...visibleSummary, summaryRows[avgIdx]];
+                  const toNumber = (v) => {
+                    if (v === null || v === undefined) return null;
+                    const num = Number(v);
+                    return Number.isFinite(num) ? num : null;
+                  };
+                  const deriveSeverity = (row) => {
+                    const direct = toNumber(row?.severity ?? row?.FHB_severity ?? row?.fhb_severity);
+                    if (direct !== null) return direct;
+                    const healthy = toNumber(row?.fhb_noninfected_spikelets ?? row?.healthy);
+                    const infected = toNumber(row?.fhb_infected_spikelets ?? row?.infected);
+                    const total = (healthy || 0) + (infected || 0);
+                    if (total > 0) return (infected || 0) / total * 100;
+                    return null;
+                  };
+                  const aggregateLabels = new Set(["average severity", "incidence %", "severity", "disease index"]);
+                  const baseRows = summaryRows.filter((row) => {
+                    const name = String(row.image_name || row.image || "").trim().toLowerCase();
+                    return !aggregateLabels.has(name);
+                  });
+                  const totalSpikes = baseRows.length;
+                  const positiveSev = [];
+                  baseRows.forEach((row) => {
+                    const sev = deriveSeverity(row);
+                    if (sev === null) return;
+                    if (sev > 0) positiveSev.push(sev);
+                  });
+                  const incidence = totalSpikes ? (positiveSev.length / totalSpikes) * 100 : 0;
+                  const severityPos = positiveSev.length ? (positiveSev.reduce((a, b) => a + b, 0) / positiveSev.length) : 0;
+                  const diseaseIndex = (severityPos * incidence) / 100;
+                  const metricRows = [
+                    { key: "incidence", label: "Incidence %", value: incidence },
+                    { key: "severity", label: "Severity", value: severityPos },
+                    { key: "disease_index", label: "Disease Index", value: diseaseIndex },
+                  ];
+                  if (!totalSpikes) {
+                    return (
+                      <div className="small" style={{ color: 'var(--muted)' }}>
+                        Pipeline finished but no spikelets were scored in the crops.
+                      </div>
+                    );
                   }
-                  const hasMoreSummary = summaryRows.length > summaryLimit;
+                  const visibleSummary = baseRows.slice(0, summaryLimit);
+                  const hasMoreSummary = baseRows.length > summaryLimit;
+                  const rowsToRender = [...metricRows, ...visibleSummary];
                   return (
                   <div className="table-wrap" style={{ overflowX: "auto" }}>
                     <table className="small" style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -568,32 +606,30 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleSummary.map((row, idx) => {
+                        {rowsToRender.map((row, idx) => {
+                          const isMetric = row.key && row.value !== undefined;
+                          if (isMetric) {
+                            const pct = Number.isFinite(row.value) ? `${row.value.toFixed(1)}%` : "0.0%";
+                            return (
+                              <tr key={`metric-${row.key}`}>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", fontWeight: 800 }}>{row.label}</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", color: 'var(--muted)' }}>—</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", color: 'var(--muted)' }}>—</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", fontWeight: 800 }}>{pct}</td>
+                              </tr>
+                            );
+                          }
                           const label = row.image_name || row.image || `image_${idx + 1}`;
-                          const isAverageRow = (row.image_name || row.image || "").toLowerCase() === "average severity";
-                          const strongStyle = isAverageRow ? { fontWeight: 800, color: "#000" } : null;
+                          const healthy = row.fhb_noninfected_spikelets ?? row.healthy ?? 0;
+                          const infected = row.fhb_infected_spikelets ?? row.infected ?? 0;
+                          const severityValue = deriveSeverity(row);
+                          const severityText = Number.isFinite(severityValue) ? `${severityValue.toFixed(1)}%` : "0.0%";
                           return (
                             <tr key={`${label}-${idx}`}>
-                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", ...strongStyle }}>{label}</td>
-                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_noninfected_spikelets ?? row.healthy ?? 0}</td>
-                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>{row.fhb_infected_spikelets ?? row.infected ?? 0}</td>
-                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", ...strongStyle }}>
-                                {(() => {
-                                  const severityValue = row.severity ?? row.FHB_severity;
-                                  if (severityValue !== undefined && severityValue !== null) {
-                                    const pct = Number(severityValue);
-                                    if (!Number.isNaN(pct)) {
-                                      return `${pct.toFixed(1)}%`;
-                                    }
-                                  }
-                                  const healthy = Number(row.fhb_noninfected_spikelets ?? row.healthy ?? 0);
-                                  const infected = Number(row.fhb_infected_spikelets ?? row.infected ?? 0);
-                                  const total = healthy + infected;
-                                  if (!total) return "0.0%";
-                                  const pct = (infected / total) * 100;
-                                  return `${pct.toFixed(1)}%`;
-                                })()}
-                              </td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{label}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{healthy}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{infected}</td>
+                              <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right" }}>{severityText}</td>
                             </tr>
                           );
                         })}
@@ -603,7 +639,7 @@ export default function App() {
                               <button
                                 type="button"
                                 className="btn outline"
-                                onClick={() => setSummaryLimit((prev) => Math.min(summaryRows.length, prev + 10))}
+                                onClick={() => setSummaryLimit((prev) => Math.min(baseRows.length, prev + 10))}
                               >
                                 Show more (+10) ...
                               </button>

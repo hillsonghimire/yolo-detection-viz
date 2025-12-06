@@ -695,6 +695,7 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px;background:tr
   box-shadow:0 26px 48px rgba(11,17,34,0.28);
   border-radius:18px;
   padding:18px 18px 24px;
+  position:relative;
 }
 [data-theme="dark"] .about-modal{
   background:linear-gradient(135deg, rgba(14,18,34,0.86), rgba(20,26,48,0.82));
@@ -721,17 +722,20 @@ canvas{display:block;max-width:100%;height:auto;border-radius:10px;background:tr
 }
 .about-blurb{ margin:4px 0 0 0; color:var(--muted); max-width:640px }
 .about-close{
-  background:rgba(108,92,231,0.12);
-  border:1px solid rgba(108,92,231,0.28);
+  position:absolute;
+  top:12px;
+  right:12px;
+  background:transparent;
+  border:none;
   color:var(--fg);
-  border-radius:12px;
-  padding:6px 10px;
+  border-radius:10px;
+  padding:6px 8px;
   cursor:pointer;
   min-width:36px;
   height:36px;
 }
-.about-close:hover{ background:rgba(108,92,231,0.2); border-color:var(--acc) }
-[data-theme="dark"] .about-close{ background:rgba(124,134,255,0.12); border-color:rgba(124,134,255,0.35); color:#e2e8f0 }
+.about-close:hover{ background:transparent; color:var(--acc) }
+[data-theme="dark"] .about-close{ background:transparent; border:none; color:#e2e8f0 }
 
 .about-grid{
   display:grid;

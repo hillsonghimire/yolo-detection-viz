@@ -103,7 +103,7 @@ def _write_mm_norm_labels_txt(image_path: str, detections: list[dict], meta: dic
             f.write(" ".join(parts) + "\n")
     return rel_path
 
-def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_path: str) -> str:
+def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_path: str, model_name: str | None = None) -> str:
     """
     Generates an image with bounding boxes from a labels.txt file.
     The file is expected to contain 'class_id x1 y1 x2 y2 x3 y3 x4 y4 conf'.
@@ -119,6 +119,7 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
     ax.imshow(image)
     ax.set_title(f"Detections for {os.path.basename(image_path)}")
     
+    model_key = (model_name or "").lower()
     class_color_map = {
         0: 'red',
         1: 'blue',
@@ -126,6 +127,20 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
         3: 'purple',
         4: 'yellow',
     }
+    class_label_map = {}
+    if model_key == "fhb":
+        # Flip colors so infected (class_1) is red and healthy (class_0) is blue
+        class_color_map = {
+            0: 'blue',
+            1: 'red',
+            2: 'green',
+            3: 'purple',
+            4: 'yellow',
+        }
+        class_label_map = {
+            0: "healthy_spikelet",
+            1: "infected_spikelet",
+        }
 
     try:
         with open(labels_txt_path, 'r') as f:
@@ -154,7 +169,8 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
         ax.add_patch(polygon)
         
         conf_value = float(parts[9])
-        label = f"Class {class_id}: {conf_value:.2f}"
+        cls_label = class_label_map.get(class_id, f"Class {class_id}")
+        label = f"{cls_label}: {conf_value:.2f}"
         cx, cy = np.mean(points, axis=0)
         ax.text(cx, cy, label, color='white', fontsize=8, ha='center', va='center', bbox=dict(facecolor=color, alpha=0.5, edgecolor='none', boxstyle='round,pad=0.2'))
 
@@ -189,7 +205,7 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
 
         # Optional: write labels .txt for download
         labels_rel_path = _write_labels_txt(str(job_id), detections)
-        annotated_image_rel_path = _generate_annotated_image_from_txt(str(job_id), image_path, os.path.join(settings.MEDIA_ROOT, labels_rel_path))
+        annotated_image_rel_path = _generate_annotated_image_from_txt(str(job_id), image_path, os.path.join(settings.MEDIA_ROOT, labels_rel_path), model_name)
 
         # Build API-friendly result payload similar to your sample
         result_payload = {
@@ -199,6 +215,7 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
             "detections": detections,
             "image_width": meta.get("image_width"),
             "image_height": meta.get("image_height"),
+            "model": model_name,
         }
 
         with transaction.atomic():
@@ -432,6 +449,7 @@ def generate_excel_report(*args, **kwargs) -> None:
 
         rows: List[Dict[str, Any]] = []
         all_class_cols: set[str] = set()
+        bulk_model: str | None = None
 
         for job in jobs:
             file_name = os.path.basename(job.image.name) if job.image else str(job.id)
@@ -442,10 +460,11 @@ def generate_excel_report(*args, **kwargs) -> None:
                 abs_labels_path = os.path.join(settings.MEDIA_ROOT, job.labels_file)
                 detection_counts = _count_from_labels_txt(abs_labels_path)
 
+            result_data: Dict[str, Any] = {}
             # Fallback to result JSON if labels file missing or empty
             if not detection_counts and job.result:
                 try:
-                    result_data = json.loads(job.result)
+                    result_data = json.loads(job.result) if isinstance(job.result, str) else job.result
                 except (TypeError, json.JSONDecodeError):
                     result_data = job.result if isinstance(job.result, dict) else {}
                 for det in result_data.get("detections", []) or []:
@@ -459,6 +478,18 @@ def generate_excel_report(*args, **kwargs) -> None:
                     col = f"Class_{cid}"
                     detection_counts[col] = detection_counts.get(col, 0) + 1
 
+            # Capture model name (used for FHB-specific renaming)
+            try:
+                if not result_data and job.result:
+                    result_data = json.loads(job.result) if isinstance(job.result, str) else job.result or {}
+            except Exception:
+                result_data = result_data or {}
+            model_name = None
+            if isinstance(result_data, dict):
+                model_name = str(result_data.get("model") or "").lower() or None
+            if model_name and bulk_model is None:
+                bulk_model = model_name
+
             # Accumulate
             all_class_cols.update(detection_counts.keys())
             rows.append({"file_name": file_name, **detection_counts})
@@ -466,6 +497,22 @@ def generate_excel_report(*args, **kwargs) -> None:
         # Build DataFrame with consistent columns
         columns = ["file_name"] + sorted(all_class_cols)
         df = pd.DataFrame(rows, columns=columns).fillna(0)
+
+        if (bulk_model or "").lower() == "fhb":
+            rename_map = {
+                "Class_0": "healthy_spikelet",
+                "Class_1": "infected_spikelet",
+            }
+            df = df.rename(columns=rename_map)
+            for col in ["healthy_spikelet", "infected_spikelet"]:
+                if col not in df.columns:
+                    df[col] = 0
+            total = df["healthy_spikelet"].astype(float) + df["infected_spikelet"].astype(float)
+            dsr = np.where(total > 0, (df["infected_spikelet"].astype(float) / total) * 100.0, 0.0)
+            df["Disease Spikelet Rate (DSR)"] = np.round(dsr, 1)
+            ordered_cols = ["file_name", "healthy_spikelet", "infected_spikelet", "Disease Spikelet Rate (DSR)"]
+            remaining_cols = [c for c in df.columns if c not in ordered_cols]
+            df = df[ordered_cols + remaining_cols]
 
         # Avoid printing massive frames
         if not df.empty and len(df) <= 100:

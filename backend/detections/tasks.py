@@ -13,7 +13,7 @@ from django.db import transaction
 from django.db.models import F
 from django.conf import settings
 from typing import List, Dict, Any, Tuple
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .models import DetectionJob
 from .inference import run_detection, _image_dims
@@ -107,18 +107,28 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
     """
     Generates an image with bounding boxes from a labels.txt file.
     The file is expected to contain 'class_id x1 y1 x2 y2 x3 y3 x4 y4 conf'.
+    Applies EXIF transpose to match the orientation used for detection.
     Returns the relative path to the saved image.
     """
     try:
         image = Image.open(image_path)
-    except Exception:
-        print(f"Error loading image: {image_path}")
+        # Apply EXIF transpose to match the orientation used for detection
+        try:
+            image = ImageOps.exif_transpose(image).convert("RGB")
+        except Exception as exif_error:
+            # If EXIF transpose fails, just convert to RGB
+            image = image.convert("RGB")
+            print(f"EXIF transpose failed for {image_path}: {exif_error}, using original orientation")
+    except Exception as load_error:
+        print(f"Error loading image {image_path}: {load_error}")
         return ""
 
+    # Create figure with exact image dimensions to avoid padding/aspect ratio issues
     fig, ax = plt.subplots(1, figsize=(image.width / 100, image.height / 100), dpi=100)
     ax.imshow(image)
-    ax.set_title(f"Detections for {os.path.basename(image_path)}")
-    
+    # Remove title to avoid padding
+    # ax.set_title(f"Detections for {os.path.basename(image_path)}")
+
     model_key = (model_name or "").lower()
     class_color_map = {
         0: 'red',
@@ -167,7 +177,7 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
         color = class_color_map.get(class_id, 'black')
         polygon = patches.Polygon(points, closed=True, edgecolor=color, fill=False, linewidth=1)
         ax.add_patch(polygon)
-        
+
         conf_value = float(parts[9])
         cls_label = class_label_map.get(class_id, f"Class {class_id}")
         label = f"{cls_label}: {conf_value:.2f}"
@@ -175,14 +185,18 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
         ax.text(cx, cy, label, color='white', fontsize=8, ha='center', va='center', bbox=dict(facecolor=color, alpha=0.5, edgecolor='none', boxstyle='round,pad=0.2'))
 
     ax.axis('off')
-    
+    # Remove all padding and margins
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    ax.margins(0)
+
     fname = f"{job_id}.jpg"
     rel_path = os.path.join("annotated", fname)
     abs_dir = os.path.join(settings.MEDIA_ROOT, "annotated")
     os.makedirs(abs_dir, exist_ok=True)
     abs_path = os.path.join(abs_dir, fname)
-    
-    plt.savefig(abs_path, bbox_inches='tight', pad_inches=0, dpi=300)
+
+    # Save with no padding and exact dimensions
+    plt.savefig(abs_path, bbox_inches='tight', pad_inches=0, dpi=100, facecolor='black')
     plt.close(fig)
     print(f"Saved annotated image: {abs_path}")
     
@@ -308,6 +322,9 @@ def run_kernel_measurement(self,
         labels_rel_path = _write_mm_norm_labels_txt(image_path, dets, meta, settings.MEDIA_ROOT)
         labels_abs_path = os.path.join(settings.MEDIA_ROOT, labels_rel_path)
 
+        # Generate annotated image for download
+        annotated_image_rel_path = _generate_annotated_image_from_txt(str(job_id), image_path, labels_abs_path, model_name)
+
         # Run measurement
         allowed_ids = set()
         try:
@@ -368,9 +385,10 @@ def run_kernel_measurement(self,
         with transaction.atomic():
             job = DetectionJob.objects.select_for_update().get(id=job_id)
             job.result = json.dumps(result_payload)
+            job.annotated_image = annotated_image_rel_path
             job.status = "DONE"
             job.progress = 100
-            job.save(update_fields=["result", "status", "progress"])
+            job.save(update_fields=["result", "annotated_image", "status", "progress"])
 
         return job_id
 

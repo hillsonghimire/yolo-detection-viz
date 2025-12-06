@@ -1,8 +1,10 @@
 from pathlib import Path
 import logging
+import tempfile
 
 import pandas as pd
 from ultralytics import YOLO
+from PIL import Image, ImageOps
 
 
 # ======================================================================
@@ -54,6 +56,23 @@ def original_image_name_from_crop(crop_stem: str) -> str:
     """
     parts = crop_stem.split("_")
     return "_".join(parts[:-2]) if len(parts) >= 3 else crop_stem
+
+
+def create_transposed_images_dir(images_dir: Path, temp_dir: Path) -> Path:
+    """Create a temporary directory with EXIF-transposed images."""
+    transposed_dir = temp_dir / "transposed_images"
+    transposed_dir.mkdir(exist_ok=True)
+
+    image_files = []
+    for ext in [".jpg", ".JPG", ".PNG", ".jpeg", ".png", ".tif", ".tiff"]:
+        image_files.extend(images_dir.glob(f"*{ext}"))
+
+    for img_path in image_files:
+        with Image.open(img_path) as img:
+            transposed = ImageOps.exif_transpose(img).convert("RGB")
+            transposed.save(transposed_dir / img_path.name)
+
+    return transposed_dir
 
 
 # ======================================================================
@@ -125,18 +144,24 @@ def fhb_detect(
     fhb_model = YOLO(fhb_model_path)
 
     logger.info("Running FHB YOLO prediction...")
-    fhb_model.predict(
-        source=good_spikes_dir,
-        imgsz=imgsz,
-        conf=conf,
-        agnostic_nms=True,
-        save=save_overlays,          # <-- NEW OPTION
-        save_txt=True,
-        show_labels=False,
-        project=fhb_results_root,
-        name="pred",
-        exist_ok=True,
-    )
+    # Create temporary directory with EXIF-transposed images
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        transposed_images_dir = create_transposed_images_dir(good_spikes_dir, temp_path)
+        logger.info(f"Created transposed images in temporary directory: {transposed_images_dir}")
+
+        fhb_model.predict(
+            source=str(transposed_images_dir),
+            imgsz=imgsz,
+            conf=conf,
+            agnostic_nms=True,
+            save=save_overlays,          # <-- NEW OPTION
+            save_txt=True,
+            show_labels=False,
+            project=fhb_results_root,
+            name="pred",
+            exist_ok=True,
+        )
 
     logger.info("FHB prediction completed.")
 

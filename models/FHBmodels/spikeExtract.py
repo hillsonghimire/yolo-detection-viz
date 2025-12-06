@@ -1,9 +1,11 @@
 from ultralytics import YOLO
 from pathlib import Path
 from math import sqrt, hypot
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 import random
 import logging
+import tempfile
+import shutil
 
 IMAGE_EXTS = [".jpg", ".JPG", ".PNG", ".jpeg", ".png", ".tif", ".tiff"]
 
@@ -57,6 +59,23 @@ def find_image(stem: str, images_dir: Path) -> Path | None:
         if cand.exists():
             return cand
     return None
+
+
+def create_transposed_images_dir(images_dir: Path, temp_dir: Path) -> Path:
+    """Create a temporary directory with EXIF-transposed images."""
+    transposed_dir = temp_dir / "transposed_images"
+    transposed_dir.mkdir(exist_ok=True)
+
+    image_files = []
+    for ext in IMAGE_EXTS:
+        image_files.extend(images_dir.glob(f"*{ext}"))
+
+    for img_path in image_files:
+        with Image.open(img_path) as img:
+            transposed = ImageOps.exif_transpose(img).convert("RGB")
+            transposed.save(transposed_dir / img_path.name)
+
+    return transposed_dir
 
 
 def obb_long_side_length(pts_px):
@@ -262,16 +281,22 @@ def run_spike_pipeline(
     logger.info("Stage 1/3: YOLO OBB detection started...")
     model = YOLO(model_path)
 
-    model.predict(
-        source=images_dir,
-        save=True,
-        save_txt=True,
-        show_labels=False,
-        conf=0.25,
-        project=results_root,
-        name=yolo_run_name,
-        exist_ok=True,
-    )
+    # Create temporary directory with EXIF-transposed images
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        transposed_images_dir = create_transposed_images_dir(images_dir, temp_path)
+        logger.info(f"Created transposed images in temporary directory: {transposed_images_dir}")
+
+        model.predict(
+            source=str(transposed_images_dir),
+            save=True,
+            save_txt=True,
+            show_labels=False,
+            conf=0.25,
+            project=results_root,
+            name=yolo_run_name,
+            exist_ok=True,
+        )
     logger.info("Stage 1/3: YOLO OBB detection completed.")
 
     # ------------------ Stage 2: Read labels --------------------------

@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Dict, Any, List, Iterable
 
 import numpy as np
+from PIL import ImageOps
 from ultralytics import YOLO
 
 APP_DIR = os.path.dirname(__file__)
@@ -174,5 +175,7 @@ def results_to_response(result: Any) -> Dict[str, Any]:
 
 def run_inference(model_name: str, image_pil, conf: float = 0.05) -> Dict[str, Any]:
     model = load_model(model_name)
-    results = model.predict(image_pil, conf=conf, verbose=False)
+    # Apply EXIF transpose to match frontend display
+    img_transposed = ImageOps.exif_transpose(image_pil).convert("RGB")
+    results = model.predict(img_transposed, conf=conf, verbose=False)
     return results_to_response(results[0])

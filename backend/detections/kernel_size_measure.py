@@ -14,6 +14,7 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 import pandas as pd
 import cv2
+from PIL import Image, ImageOps
 
 # YOLO OBB
 from ultralytics import YOLO
@@ -112,7 +113,10 @@ def warp_pts_mm(pts_px: np.ndarray, H: np.ndarray) -> np.ndarray:
 
 def run_yolo_obb(image_path: str, model_path: str) -> List[Dict]:
     model = YOLO(model_path)
-    results = model.predict(source=image_path, save=False, verbose=False)
+    # Apply EXIF transpose to match frontend display
+    with Image.open(image_path) as img:
+        img_transposed = ImageOps.exif_transpose(img).convert("RGB")
+        results = model.predict(source=img_transposed, save=False, verbose=False)
     obb_results = []
     for result in results:
         if result.obb is None:

@@ -1,6 +1,6 @@
 # detections/inference.py
 from typing import List, Dict, Any, Tuple
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 from ultralytics import YOLO
 
@@ -71,10 +71,13 @@ def run_detection(
     if cached_payload is not None:
         normalized_result = cached_payload
     else:
-        # Run prediction and get results
-        results = model.predict(source=image_path, conf=confidence, verbose=False)
-        # Use the shared results_to_response function to normalize the output
-        normalized_result = results_to_response(results[0])
+        # Load image and apply EXIF transpose to match frontend display
+        with Image.open(image_path) as img:
+            img_transposed = ImageOps.exif_transpose(img).convert("RGB")
+            # Run prediction and get results
+            results = model.predict(source=img_transposed, conf=confidence, verbose=False)
+            # Use the shared results_to_response function to normalize the output
+            normalized_result = results_to_response(results[0])
         if use_cache and digest:
             try:
                 store_detection_cache(model_name, confidence, digest, normalized_result)

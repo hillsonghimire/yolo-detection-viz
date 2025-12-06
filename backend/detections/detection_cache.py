@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from django.conf import settings
 
 # Stored cache payloads include a version wrapper so we can invalidate cleanly.
-_CACHE_VERSION = 1
+_CACHE_VERSION = 2
 _CACHE_ROOT = os.path.join(settings.MEDIA_ROOT, "cache", "basic")
 
 

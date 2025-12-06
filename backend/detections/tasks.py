@@ -151,6 +151,12 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
             0: "healthy_spikelet",
             1: "infected_spikelet",
         }
+    elif model_key == "fdk":
+        # Keep infected (class_0) red and healthy (class_1) blue to match single-image view
+        class_label_map = {
+            0: "infected_kernel",
+            1: "healthy_kernel",
+        }
 
     try:
         with open(labels_txt_path, 'r') as f:
@@ -516,7 +522,9 @@ def generate_excel_report(*args, **kwargs) -> None:
         columns = ["file_name"] + sorted(all_class_cols)
         df = pd.DataFrame(rows, columns=columns).fillna(0)
 
-        if (bulk_model or "").lower() == "fhb":
+        model_lower = (bulk_model or "").lower()
+
+        if model_lower == "fhb":
             rename_map = {
                 "Class_0": "healthy_spikelet",
                 "Class_1": "infected_spikelet",
@@ -529,6 +537,22 @@ def generate_excel_report(*args, **kwargs) -> None:
             dsr = np.where(total > 0, (df["infected_spikelet"].astype(float) / total) * 100.0, 0.0)
             df["Disease Spikelet Rate (DSR)"] = np.round(dsr, 1)
             ordered_cols = ["file_name", "healthy_spikelet", "infected_spikelet", "Disease Spikelet Rate (DSR)"]
+            remaining_cols = [c for c in df.columns if c not in ordered_cols]
+            df = df[ordered_cols + remaining_cols]
+        elif model_lower == "fdk":
+            # Align bulk Excel labels with single-image view: class 0 = infected, class 1 = healthy
+            rename_map = {
+                "Class_0": "infected_kernels",
+                "Class_1": "healthy_kernels",
+            }
+            df = df.rename(columns=rename_map)
+            for col in ["infected_kernels", "healthy_kernels"]:
+                if col not in df.columns:
+                    df[col] = 0
+            total = df["infected_kernels"].astype(float) + df["healthy_kernels"].astype(float)
+            fdk_rate = np.where(total > 0, (df["infected_kernels"].astype(float) / total) * 100.0, 0.0)
+            df["Percent FDK"] = np.round(fdk_rate, 1)
+            ordered_cols = ["file_name", "infected_kernels", "healthy_kernels", "Percent FDK"]
             remaining_cols = [c for c in df.columns if c not in ordered_cols]
             df = df[ordered_cols + remaining_cols]
 

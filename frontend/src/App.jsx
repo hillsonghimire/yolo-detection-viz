@@ -267,7 +267,7 @@ export default function App() {
               WheatAI
               <sup className="brand-version"><em>v1.0</em></sup>
             </span>
-            <span className="brand-tagline">AI-based wheat assessment</span>
+            <span className="brand-tagline">AI-based Wheat Phenotyping Platform</span>
           </div>
         </div>
         <div className="header-actions">

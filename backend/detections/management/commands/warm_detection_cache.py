@@ -14,7 +14,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--root",
             default=os.path.join(settings.BASE_DIR, "frontend", "public", "samples"),
-            help="Root directory that contains sample subfolders (spike, spikelet, fhb, fdk, kernel).",
+            help="Root directory that contains sample subfolders (spike, spikelet, fhb, fdk, kernel, uav_spike).",
         )
         parser.add_argument(
             "--conf",
@@ -38,7 +38,7 @@ class Command(BaseCommand):
             raise CommandError(f"Sample root not found: {root}")
 
         # Map folder names to model keys accepted by the API.
-        valid_models = {"spike", "spikelet", "fhb", "fdk", "kernel"}
+        valid_models = {"spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike"}
         worklist: List[Tuple[str, str]] = []
 
         for entry in sorted(os.listdir(root)):

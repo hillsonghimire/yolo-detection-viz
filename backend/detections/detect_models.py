@@ -20,6 +20,7 @@ MODEL_REGISTRY: Dict[str, str] = {
     "spikelet":  os.getenv("MODEL_SPIKELET",  _fallback("spikelet.pt")),
     "fhb":       os.getenv("MODEL_FHB",       _fallback("fhb.pt")),
     "fdk":       os.getenv("MODEL_FDK",       _fallback("fdk.pt")),
+    "uav_spike": os.getenv("MODEL_UAV_SPIKE", _fallback("UAV-RGB-Spike.pt")),
     # Kernel size measurement typically uses a kernel/seed YOLO-OBB model
     # Configure via env MODEL_KERNEL or place kernel.pt under detections/models/
     "kernel":    os.getenv("MODEL_KERNEL",    _fallback("kernel.pt")),

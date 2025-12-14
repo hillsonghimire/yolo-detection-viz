@@ -233,6 +233,8 @@ export default function DetectPanel({
     const num = Number.parseInt(k, 10);
     if (model === 'spike') {
       if (num === 0) return 'spike';
+    } else if (model === 'uav_spike') {
+      if (num === 0) return 'UAV spike';
     } else if (model === 'spikelet') {
       if (num === 0) return 'spikelet';
     } else if (model === 'fdk') {

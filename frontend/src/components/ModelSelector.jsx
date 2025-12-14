@@ -9,6 +9,7 @@ export default function ModelSelector({ model, setModel }){
           onChange={(e) => setModel(e.target.value)}
         >
           <option value="spike">Wheat Spike</option>
+          <option value="uav_spike">UAV Spike</option>
           <option value="spikelet">Spikelet</option>
           <option value="fhb">FHB</option>
           <option value="fhb_field">FHB Field</option>

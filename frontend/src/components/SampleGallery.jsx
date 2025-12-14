@@ -45,6 +45,13 @@ const samples = {
     // "/samples/spikelet/spikelet11.png",
     // "/samples/spikelet/spikelet12.png",
   ],
+  uav_spike: [
+    "/samples/uav-spike/sample1.png",
+    "/samples/uav-spike/sample2.png",
+    "/samples/uav-spike/sample3.png",
+    "/samples/uav-spike/sample4.png",
+    "/samples/uav-spike/sample5.png",
+  ],
   fhb: fhbSamples,
   fhb_field: fhbFieldSamples,
   fdk: [

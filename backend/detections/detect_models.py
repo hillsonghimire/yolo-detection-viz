@@ -1,4 +1,4 @@
-# detections/detect_models.py  — FULL FILE REPLACEMENT
+# detections/detect_models.py
 import os
 from pathlib import Path
 from functools import lru_cache

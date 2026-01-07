@@ -10,6 +10,18 @@ docker compose up
 - Backend: http://localhost:8000
 - Frontend: http://localhost:5173
 
+## Backend-only (decoupled)
+
+Keep the current UI working with the default compose files, but run the backend standalone when you want to develop or deploy it separately:
+
+```bash
+# Dev (backend + worker + db + redis)
+docker compose -f docker-compose-backend-dev.yml up -d
+
+# Prod (backend + worker + db + redis)
+docker compose -f docker-compose-backend-prod.yml up -d
+```
+
 Upload an image and click **Start Processing**. After detection finishes, a **Confidence** slider appears. Change it and click **Re-run with confidence** to run again.
 
 ## Environment

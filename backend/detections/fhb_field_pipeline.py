@@ -16,7 +16,7 @@ from django.conf import settings
 def _candidate_model_dirs() -> List[Path]:
     """
     Possible parent folders that may contain FHBmodels/.
-    Priority: explicit env -> backend/models -> repo_root/models -> /app/models -> /models.
+    Priority: explicit env -> repo_root/models -> /app/models -> /models.
     """
     env_root = os.environ.get("FHB_FIELD_ROOT")
     candidates: List[Path] = []
@@ -25,7 +25,6 @@ def _candidate_model_dirs() -> List[Path]:
 
     base = Path(settings.BASE_DIR)
     candidates.extend([
-        base / "models",
         base.parent / "models",
         Path("/app/models"),
         Path("/models"),

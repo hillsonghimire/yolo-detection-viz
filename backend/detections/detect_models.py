@@ -1,5 +1,6 @@
 # detections/detect_models.py  — FULL FILE REPLACEMENT
 import os
+from pathlib import Path
 from functools import lru_cache
 from typing import Dict, Any, List, Iterable
 
@@ -8,11 +9,12 @@ from PIL import ImageOps
 from ultralytics import YOLO
 
 APP_DIR = os.path.dirname(__file__)
+REPO_ROOT = str(Path(APP_DIR).resolve().parents[1])
 
 def _fallback(fname: str) -> str:
-    """Prefer app-local detections/models/<fname>; else /app/models/<fname>."""
-    local = os.path.join(APP_DIR, "models", fname)
-    return local if os.path.exists(local) else f"/app/models/{fname}"
+    """Prefer repo_root/models/<fname>; else /models/<fname>."""
+    local = os.path.join(REPO_ROOT, "models", fname)
+    return local if os.path.exists(local) else f"/models/{fname}"
 
 # Front-end keys -> weight paths (env overrides > fallback)
 MODEL_REGISTRY: Dict[str, str] = {
@@ -22,7 +24,7 @@ MODEL_REGISTRY: Dict[str, str] = {
     "fdk":       os.getenv("MODEL_FDK",       _fallback("fdk.pt")),
     "uav_spike": os.getenv("MODEL_UAV_SPIKE", _fallback("UAV-RGB-Spike.pt")),
     # Kernel size measurement typically uses a kernel/seed YOLO-OBB model
-    # Configure via env MODEL_KERNEL or place kernel.pt under detections/models/
+    # Configure via env MODEL_KERNEL or place kernel.pt under repo_root/models/
     "kernel":    os.getenv("MODEL_KERNEL",    _fallback("kernel.pt")),
 }
 
@@ -35,8 +37,8 @@ def load_model(model_name: str) -> YOLO:
         # Provide targeted fallbacks for the kernel model name
         if model_name == "kernel":
             candidates = [
-                os.path.join(APP_DIR, "models", "kernel.pt"),  # backend/detections/models/kernel.pt
-                "/app/models/kernel.pt",                         # backend/models/kernel.pt (within container)
+                os.path.join(REPO_ROOT, "models", "kernel.pt"),
+                "/models/kernel.pt",
             ]
             for p in candidates:
                 if os.path.exists(p):

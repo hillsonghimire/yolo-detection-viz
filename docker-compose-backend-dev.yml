@@ -1,0 +1,87 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: yoloapp
+      POSTGRES_USER: yolo
+      POSTGRES_PASSWORD: yolo_pass
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yolo -d yoloapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /app/entrypoint.sh > /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && exec /tmp/entrypoint.sh \"$@\"", "--"]
+    command: ["python","manage.py","runserver","0.0.0.0:8000"]
+    environment:
+      RUN_MIGRATIONS: "1"
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: yolo
+      DB_PASSWORD: yolo_pass
+      DB_NAME: yoloapp
+      MODEL_SPIKE:    "/app/models/spike.pt"
+      MODEL_SPIKELET: "/app/models/spikelet.pt"
+      MODEL_FHB:      "/app/models/fhb.pt"
+      MODEL_FDK:      "/app/models/fdk.pt"
+      MODEL_KERNEL:   "/app/models/kernel.pt"
+      DETECTION_TASK: "obb"
+      CORS_ALLOW_ALL: "1"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+      - media-data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: ./backend
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /app/entrypoint.sh > /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && exec /tmp/entrypoint.sh \"$@\"", "--"]
+    command: ["celery", "-A", "server", "worker", "-l", "info"]
+    environment:
+      RUN_MIGRATIONS: "0"
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key"
+      DB_NAME: yoloapp
+      DB_USER: yolo
+      DB_PASSWORD: yolo_pass
+      DB_HOST: db
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      C_FORCE_ROOT: "true"
+      MODEL_KERNEL: "/app/models/kernel.pt"
+      DETECTION_TASK: "obb"
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+      - media-data:/app/media
+    depends_on:
+      backend:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  db-data: {}
+  media-data: {}

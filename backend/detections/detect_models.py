@@ -9,7 +9,11 @@ from PIL import ImageOps
 from ultralytics import YOLO
 
 APP_DIR = os.path.dirname(__file__)
-REPO_ROOT = str(Path(APP_DIR).resolve().parents[1])
+_app_path = Path(APP_DIR).resolve()
+# Handle both repo layouts:
+# - /repo/backend/detections -> repo root is parents[1]
+# - /app/detections (docker) -> repo root is parent (/app)
+REPO_ROOT = str(_app_path.parents[1] if _app_path.parent.name == "backend" else _app_path.parent)
 
 def _fallback(fname: str) -> str:
     """Prefer repo_root/models/<fname>; else /models/<fname>."""

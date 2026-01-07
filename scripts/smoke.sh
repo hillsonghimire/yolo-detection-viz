@@ -2,7 +2,9 @@
 set -euo pipefail
 
 API_BASE="${API_BASE:-http://localhost:8000/api}"
-SAMPLES_DIR="${SAMPLES_DIR:-frontend/public/samples}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SAMPLES_DIR="${SAMPLES_DIR:-$REPO_ROOT/frontend/public/samples}"
 POLL_TRIES="${POLL_TRIES:-30}"
 POLL_SLEEP="${POLL_SLEEP:-2}"
 CURL_INSECURE="${CURL_INSECURE:-0}"
@@ -63,7 +65,9 @@ if excel:
 
 pick_image() {
   local dir="$1"
-  ls "$dir" 2>/dev/null | head -n 1
+  if [[ -d "$dir" ]]; then
+    ls "$dir" 2>/dev/null | head -n 1 || true
+  fi
 }
 
 post_basic() {
@@ -113,8 +117,8 @@ post_bulk() {
   local folder="$1"
   local model="$2"
   local img1 img2
-  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1)"
-  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1)"
+  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1 || true)"
+  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1 || true)"
   if [[ -z "$img1" || -z "$img2" ]]; then
     echo "SKIP bulk/$model: need at least 2 images in $SAMPLES_DIR/$folder" >&2
     return
@@ -132,8 +136,8 @@ post_bulk_with_id() {
   local folder="$1"
   local model="$2"
   local img1 img2
-  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1)"
-  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1)"
+  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1 || true)"
+  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1 || true)"
   if [[ -z "$img1" || -z "$img2" ]]; then
     echo "SKIP bulk/$model: need at least 2 images in $SAMPLES_DIR/$folder"
     return
@@ -157,8 +161,8 @@ post_bulk_with_id() {
 post_bulk_kernel() {
   local folder="kernel"
   local img1 img2
-  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1)"
-  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1)"
+  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1 || true)"
+  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1 || true)"
   if [[ -z "$img1" || -z "$img2" ]]; then
     echo "SKIP bulk/kernel: need at least 2 images in $SAMPLES_DIR/$folder"
     return
@@ -201,8 +205,8 @@ post_kernel_measure() {
 post_fhb_field() {
   local folder="fhb-field"
   local img1 img2
-  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1)"
-  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1)"
+  img1="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 1 || true)"
+  img2="$(ls "$SAMPLES_DIR/$folder" 2>/dev/null | head -n 2 | tail -n 1 || true)"
   if [[ -z "$img1" || -z "$img2" ]]; then
     echo "SKIP pipeline/fhb-field: need at least 2 images in $SAMPLES_DIR/$folder" >&2
     return

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { submitBulk, listBulkJobs, listJobs, downloadUrl, downloadMeasure } from "../lib/api.js";
 
-export default function BulkPanel({ model, onExit, kernelParams, setKernelParams }) {
+export default function BulkPanel({ model, onExit, kernelParams, setKernelParams, stomataParams, setStomataParams }) {
   const [files, setFiles] = useState([]);
   const [drag, setDrag] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -14,10 +14,19 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const kp = kernelParams || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
+  const sp = stomataParams || { umPerPx: 0.3448275862, iou: 0.7 };
   const applyKernelUpdate = (updater) => {
     if (typeof setKernelParams === "function") {
       setKernelParams((prev) => {
         const base = prev || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
+        return updater(base);
+      });
+    }
+  };
+  const applyStomataUpdate = (updater) => {
+    if (typeof setStomataParams === "function") {
+      setStomataParams((prev) => {
+        const base = prev || { umPerPx: 0.3448275862, iou: 0.7 };
         return updater(base);
       });
     }
@@ -123,6 +132,9 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
       const payload = { files, model, confidence: conf };
       if ((model || "").toLowerCase() === "kernel") {
         payload.kernelParams = kp;
+      }
+      if ((model || "").toLowerCase() === "stomata") {
+        payload.stomataParams = sp;
       }
       await submitBulk(payload);
       setFiles([]);
@@ -270,6 +282,31 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
                 <option value="vit_l">vit_l</option>
                 <option value="vit_h">vit_h</option>
               </select>
+            </div>
+          )}
+          {(model || "").toLowerCase() === "stomata" && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 14, justifyContent: 'center', alignItems: 'center' }}>
+              <label className="small">um per pixel</label>
+              <input
+                className="input"
+                style={{ width: 120 }}
+                type="number"
+                min="0.001"
+                step="0.001"
+                value={sp.umPerPx ?? 0.3448275862}
+                onChange={(e) => applyStomataUpdate((prev) => ({ ...prev, umPerPx: parseFloat(e.target.value) || 0 }))}
+              />
+              <label className="small">IOU</label>
+              <input
+                className="input"
+                style={{ width: 90 }}
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value={sp.iou ?? 0.7}
+                onChange={(e) => applyStomataUpdate((prev) => ({ ...prev, iou: parseFloat(e.target.value) || 0 }))}
+              />
             </div>
           )}
           <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => onPick(e.target.files)} />

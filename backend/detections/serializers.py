@@ -38,6 +38,9 @@ class BulkDetectRequestSerializer(serializers.Serializer):
     use_sam = serializers.BooleanField(required=False, default=False)
     sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
     sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")
+    # Optional stomata pipeline parameters (used when model == "stomata")
+    um_per_px = serializers.FloatField(required=False, default=0.3448275862, min_value=0.000001)
+    iou = serializers.FloatField(required=False, default=0.7, min_value=0.0, max_value=1.0)
     
 class BulkDetectionJobSerializer(serializers.ModelSerializer):
     class Meta:
@@ -55,5 +58,14 @@ class KernelMeasureRequestSerializer(serializers.Serializer):
     allowed_ids = serializers.CharField(required=False, default="425,100,201,310")
     # Optional SAM refinement
     use_sam = serializers.BooleanField(required=False, default=False)
+    sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
+    sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")
+
+
+class StomataMeasureRequestSerializer(serializers.Serializer):
+    image = serializers.ImageField()
+    um_per_px = serializers.FloatField(required=False, default=0.3448275862, min_value=0.000001)
+    conf = serializers.FloatField(required=False, default=0.25, min_value=0.0, max_value=1.0)
+    iou = serializers.FloatField(required=False, default=0.7, min_value=0.0, max_value=1.0)
     sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
     sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")

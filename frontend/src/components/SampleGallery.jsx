@@ -52,6 +52,13 @@ const samples = {
     "/samples/uav-spike/sample4.png",
     "/samples/uav-spike/sample5.png",
   ],
+  stomata: [
+    { file: "/samples/stomata/Stomata1.tif", thumb: "/samples/stomata/Stomata1.jpg" },
+    { file: "/samples/stomata/Stomata8.tif", thumb: "/samples/stomata/Stomata8.jpg" },
+    { file: "/samples/stomata/Stomata17.tif", thumb: "/samples/stomata/Stomata17.jpg" },
+    { file: "/samples/stomata/Stomata45.tif", thumb: "/samples/stomata/Stomata45.jpg" },
+    { file: "/samples/stomata/Stomata89.tif", thumb: "/samples/stomata/Stomata89.jpg" },
+  ],
   fhb: fhbSamples,
   fhb_field: fhbFieldSamples,
   fdk: [
@@ -79,6 +86,14 @@ const samples = {
 
 export default function SampleGallery({ model, onPick }){
   const imgs = samples[model] || [];
+  const resolveItem = (item) => {
+    if (item && typeof item === "object") {
+      const file = item.file || item.url || "";
+      const thumb = item.thumb || item.preview || file;
+      return { file, thumb };
+    }
+    return { file: item, thumb: item };
+  };
   const handleDragStart = (e, url)=>{
     e.dataTransfer.setData("text/uri-list", url);
     e.dataTransfer.setData("text/plain", url);
@@ -87,13 +102,16 @@ export default function SampleGallery({ model, onPick }){
     <div className="gallery card">
       {/* <h4>Try with sample images</h4> */}
       <div className="thumbs">
-        {imgs.map((url,idx)=> (
-          <div key={idx} className="thumb"
-            draggable onDragStart={(e)=> handleDragStart(e,url)}
-            onClick={()=> onPick(url)}>
-            <img src={url} alt={`sample-${idx+1}`} />
-          </div>
-        ))}
+        {imgs.map((item,idx)=> {
+          const { file, thumb } = resolveItem(item);
+          return (
+            <div key={idx} className="thumb"
+              draggable onDragStart={(e)=> handleDragStart(e, file)}
+              onClick={()=> onPick(file, thumb)}>
+              <img src={thumb} alt={`sample-${idx+1}`} />
+            </div>
+          );
+        })}
       </div>
       {/* Helper text removed to allow thumbnails to use space */}
     </div>

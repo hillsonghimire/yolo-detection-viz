@@ -123,7 +123,7 @@ export async function runFhbFieldPipeline({ file, files = [], runName = "" }) {
 }
 
 // ---- Bulk processing APIs ----
-export async function submitBulk({ files, model, confidence = 0.25, kernelParams = null }) {
+export async function submitBulk({ files, model, confidence = 0.25, kernelParams = null, stomataParams = null }) {
   const fd = new FormData();
   const valid = [];
   for (const f of files || []) {
@@ -149,6 +149,13 @@ export async function submitBulk({ files, model, confidence = 0.25, kernelParams
     fd.append("use_sam", useSam ? "true" : "false");
     fd.append("sam_checkpoint", samCheckpoint);
     fd.append("sam_model_type", samModelType);
+  }
+  if ((model || "").toLowerCase() === "stomata") {
+    const sp = stomataParams || {};
+    const umPerPx = sp.umPerPx ?? sp.um_per_px ?? 0.3448275862;
+    const iou = sp.iou ?? 0.7;
+    fd.append("um_per_px", String(umPerPx));
+    fd.append("iou", String(iou));
   }
   const res = await fetch(`${BASE}/api/detect/bulk/`, {
     method: "POST",
@@ -220,6 +227,19 @@ export async function measureKernel({ file, model = 'kernel', sidemm, allowedIds
   if (samCheckpoint) fd.append('sam_checkpoint', samCheckpoint);
   fd.append('sam_model_type', samModelType);
   const res = await fetch(`${BASE}/api/measure/kernel/`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json(); // { unique_id }
+}
+
+export async function measureStomata({ file, umPerPx = 0.3448275862, conf = 0.25, iou = 0.7, samCheckpoint = '', samModelType = 'vit_b' }){
+  const fd = new FormData();
+  fd.append('image', file);
+  fd.append('um_per_px', String(umPerPx));
+  fd.append('conf', String(conf));
+  fd.append('iou', String(iou));
+  if (samCheckpoint) fd.append('sam_checkpoint', samCheckpoint);
+  fd.append('sam_model_type', samModelType);
+  const res = await fetch(`${BASE}/api/measure/stomata/`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json(); // { unique_id }
 }

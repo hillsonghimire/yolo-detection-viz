@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import shutil
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,6 +27,11 @@ from .kernel_cache import (
     load_kernel_cache,
     store_kernel_cache,
 )
+from .stomata_cache import (
+    compute_stomata_params_hash,
+    load_stomata_cache,
+    store_stomata_cache,
+)
 
 
 # New helper function to get an axis-aligned bounding box from a polygon
@@ -35,17 +42,99 @@ def _aabb_from_polygon(pts: List[float]) -> Tuple[int, int, int, int]:
     return int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
 
 
-def _write_labels_txt(job_id: str, detections: list[dict]) -> str:
+def _job_output_base(job: DetectionJob, fallback: str) -> str:
+    name = (job.original_filename or "").strip()
+    if not name:
+        name = os.path.basename(getattr(job.image, "name", "") or "")
+    base = os.path.splitext(os.path.basename(name))[0]
+    base = base.replace(os.sep, "_").replace("/", "_")
+    return base or fallback
+
+
+def _pick_unique_relpath(subdir: str, base: str, ext: str, suffix: str) -> Tuple[str, str]:
+    abs_dir = os.path.join(settings.MEDIA_ROOT, subdir)
+    os.makedirs(abs_dir, exist_ok=True)
+
+    fname = f"{base}{ext}"
+    abs_path = os.path.join(abs_dir, fname)
+    if not os.path.exists(abs_path):
+        return os.path.join(subdir, fname), abs_path
+
+    fname = f"{base}_{suffix}{ext}"
+    abs_path = os.path.join(abs_dir, fname)
+    if not os.path.exists(abs_path):
+        return os.path.join(subdir, fname), abs_path
+
+    for i in range(2, 1000):
+        fname = f"{base}_{suffix}_{i}{ext}"
+        abs_path = os.path.join(abs_dir, fname)
+        if not os.path.exists(abs_path):
+            return os.path.join(subdir, fname), abs_path
+
+    fname = f"{base}_{suffix}_{os.getpid()}{ext}"
+    return os.path.join(subdir, fname), os.path.join(abs_dir, fname)
+
+
+def _materialize_stomata_cached(payload: Dict[str, Any], output_base: str, job_id: str) -> Dict[str, Any]:
+    updated = dict(payload)
+    suffix = str(job_id)[:8]
+
+    overlay_rel = payload.get("stomata_overlay") or ""
+    if overlay_rel:
+        overlay_abs = os.path.join(settings.MEDIA_ROOT, overlay_rel)
+        if os.path.exists(overlay_abs):
+            base = f"{output_base}_overlay"
+            rel_dst, abs_dst = _pick_unique_relpath(os.path.join("stomata", str(job_id)), base, ".png", suffix)
+            if os.path.abspath(overlay_abs) != os.path.abspath(abs_dst):
+                shutil.copy2(overlay_abs, abs_dst)
+            updated["stomata_overlay"] = rel_dst
+
+    excel_rel = payload.get("stomata_excel") or ""
+    if excel_rel:
+        excel_abs = os.path.join(settings.MEDIA_ROOT, excel_rel)
+        if os.path.exists(excel_abs):
+            base = f"{output_base}_results"
+            rel_dst, abs_dst = _pick_unique_relpath(os.path.join("stomata", str(job_id)), base, ".xlsx", suffix)
+            if os.path.abspath(excel_abs) != os.path.abspath(abs_dst):
+                shutil.copy2(excel_abs, abs_dst)
+            updated["stomata_excel"] = rel_dst
+
+    return updated
+
+
+def _materialize_kernel_cached(payload: Dict[str, Any], output_base: str, job_id: str) -> Dict[str, Any]:
+    updated = dict(payload)
+    suffix = str(job_id)[:8]
+
+    csv_rel = payload.get("measurement_csv") or ""
+    if csv_rel:
+        csv_abs = os.path.join(settings.MEDIA_ROOT, csv_rel)
+        if os.path.exists(csv_abs):
+            rel_dst, abs_dst = _pick_unique_relpath("measure", output_base, ".csv", suffix)
+            if os.path.abspath(csv_abs) != os.path.abspath(abs_dst):
+                shutil.copy2(csv_abs, abs_dst)
+            updated["measurement_csv"] = rel_dst
+
+    overlay_rel = payload.get("measurement_overlay") or ""
+    if overlay_rel:
+        overlay_abs = os.path.join(settings.MEDIA_ROOT, overlay_rel)
+        if os.path.exists(overlay_abs):
+            rel_dst, abs_dst = _pick_unique_relpath("measure", output_base, ".png", suffix)
+            if os.path.abspath(overlay_abs) != os.path.abspath(abs_dst):
+                shutil.copy2(overlay_abs, abs_dst)
+            updated["measurement_overlay"] = rel_dst
+
+    return updated
+
+
+def _write_labels_txt(job_id: str, detections: list[dict], base_name: str | None = None) -> str:
     """
     Writes a labels.txt file with annotations including confidence.
     Format: class_id x1 y1 x2 y2 x3 y3 x4 y4 confidence.
     Returns a relative path under MEDIA_ROOT.
     """
-    fname = f"{job_id}.txt"
-    rel_path = os.path.join("labels", fname)
-    abs_dir = os.path.join(settings.MEDIA_ROOT, "labels")
-    os.makedirs(abs_dir, exist_ok=True)
-    abs_path = os.path.join(abs_dir, fname)
+    base = base_name or str(job_id)
+    rel_path, abs_path = _pick_unique_relpath("labels", base, ".txt", str(job_id)[:8])
 
     with open(abs_path, "w", encoding="utf-8") as f:
         for d in detections:
@@ -63,17 +152,14 @@ def _write_labels_txt(job_id: str, detections: list[dict]) -> str:
     return rel_path
 
 
-def _write_mm_norm_labels_txt(image_path: str, detections: list[dict], meta: dict, out_dir: str) -> str:
+def _write_mm_norm_labels_txt(image_path: str, detections: list[dict], meta: dict, out_dir: str, base_name: str | None = None, suffix: str | None = None) -> str:
     """
     Write labels in the format expected by kernel_size_measure.yolo_obb_read:
     class conf x1 y1 x2 y2 x3 y3 x4 y4 (normalized to [0,1]).
     Returns relative path under MEDIA_ROOT.
     """
-    fname = f"{os.path.splitext(os.path.basename(image_path))[0]}.txt"
-    rel_path = os.path.join("labels_mm", fname)
-    abs_dir = os.path.join(settings.MEDIA_ROOT, "labels_mm")
-    os.makedirs(abs_dir, exist_ok=True)
-    abs_path = os.path.join(abs_dir, fname)
+    base = base_name or os.path.splitext(os.path.basename(image_path))[0]
+    rel_path, abs_path = _pick_unique_relpath("labels_mm", base, ".txt", suffix or (base[:8] if base else "labels"))
 
     iw = float(meta.get("image_width") or 0) or _image_dims(image_path)[0]
     ih = float(meta.get("image_height") or 0) or _image_dims(image_path)[1]
@@ -103,7 +189,7 @@ def _write_mm_norm_labels_txt(image_path: str, detections: list[dict], meta: dic
             f.write(" ".join(parts) + "\n")
     return rel_path
 
-def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_path: str, model_name: str | None = None) -> str:
+def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_path: str, model_name: str | None = None, base_name: str | None = None) -> str:
     """
     Generates an image with bounding boxes from a labels.txt file.
     The file is expected to contain 'class_id x1 y1 x2 y2 x3 y3 x4 y4 conf'.
@@ -195,11 +281,8 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     ax.margins(0)
 
-    fname = f"{job_id}.jpg"
-    rel_path = os.path.join("annotated", fname)
-    abs_dir = os.path.join(settings.MEDIA_ROOT, "annotated")
-    os.makedirs(abs_dir, exist_ok=True)
-    abs_path = os.path.join(abs_dir, fname)
+    base = base_name or str(job_id)
+    rel_path, abs_path = _pick_unique_relpath("annotated", base, ".jpg", str(job_id)[:8])
 
     # Save with no padding and exact dimensions
     plt.savefig(abs_path, bbox_inches='tight', pad_inches=0, dpi=100, facecolor='black')
@@ -207,6 +290,74 @@ def _generate_annotated_image_from_txt(job_id: str, image_path: str, labels_txt_
     print(f"Saved annotated image: {abs_path}")
     
     return rel_path
+
+
+_STOMATA_PIPELINE_CACHE: Dict[Tuple[str, str, str, float, float, float, str], Any] = {}
+
+def _pick_stomata_device() -> str:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "0"
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        pass
+    return "cpu"
+
+
+def _ensure_stomata_pipeline_assets() -> Tuple[Path, Path, Path]:
+    base_dir = Path(settings.BASE_DIR)
+    stomata_root = base_dir / "models" / "stomataModels"
+    pipeline_dir = stomata_root / "stomataMeasure"
+    if not pipeline_dir.exists():
+        raise FileNotFoundError("stomataMeasure pipeline folder not found under models/stomataModels.")
+
+    yolo_weights = pipeline_dir / "stomataYOLO.pt"
+    sam_ckpt = pipeline_dir / "sam_vit_b_01ec64.pth"
+    if not yolo_weights.exists():
+        raise FileNotFoundError(f"Missing stomata YOLO weights: {yolo_weights}")
+    if not sam_ckpt.exists():
+        raise FileNotFoundError(f"Missing SAM checkpoint: {sam_ckpt}")
+    return pipeline_dir, yolo_weights, sam_ckpt
+
+
+def _load_stomata_pipeline(conf: float, iou: float, um_per_px: float, sam_checkpoint: str, sam_model_type: str):
+    pipeline_dir, yolo_weights, sam_ckpt_default = _ensure_stomata_pipeline_assets()
+    sam_ckpt = Path(sam_checkpoint) if sam_checkpoint else sam_ckpt_default
+    if not sam_ckpt.exists():
+        raise FileNotFoundError(f"SAM checkpoint not found: {sam_ckpt}")
+
+    device = _pick_stomata_device()
+    key = (str(yolo_weights), str(sam_ckpt), sam_model_type, float(conf), float(iou), float(um_per_px), device)
+    if key in _STOMATA_PIPELINE_CACHE:
+        return _STOMATA_PIPELINE_CACHE[key]
+
+    import sys
+    stomata_root = str(pipeline_dir.parent)
+    if stomata_root not in sys.path:
+        sys.path.insert(0, stomata_root)
+
+    from stomataMeasure.stomata_pipeline import (
+        StomataPorePipeline,
+        PipelineConfig,
+        ScaleConfig,
+    )
+
+    pipeline = StomataPorePipeline(
+        yolo_weights=yolo_weights,
+        sam_ckpt=sam_ckpt,
+        sam_type=sam_model_type,
+        cfg=PipelineConfig(
+            imgsz=2560,
+            device=device,
+            conf=float(conf),
+            iou=float(iou),
+        ),
+        scale=ScaleConfig(um_per_px=float(um_per_px)),
+    )
+    _STOMATA_PIPELINE_CACHE[key] = pipeline
+    return pipeline
 
 @shared_task(bind=True)
 def run_large_detection(self, job_id: str, image_path: str, confidence: float, model_name: str) -> str:
@@ -220,12 +371,19 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
             job.status = "PROCESSING"
             job.progress = 10
             job.save(update_fields=["status", "progress"])
+            output_base = _job_output_base(job, str(job_id))
 
         detections, meta = run_detection(image_path, confidence=confidence, model_name=model_name)
 
         # Optional: write labels .txt for download
-        labels_rel_path = _write_labels_txt(str(job_id), detections)
-        annotated_image_rel_path = _generate_annotated_image_from_txt(str(job_id), image_path, os.path.join(settings.MEDIA_ROOT, labels_rel_path), model_name)
+        labels_rel_path = _write_labels_txt(str(job_id), detections, base_name=output_base)
+        annotated_image_rel_path = _generate_annotated_image_from_txt(
+            str(job_id),
+            image_path,
+            os.path.join(settings.MEDIA_ROOT, labels_rel_path),
+            model_name,
+            base_name=output_base,
+        )
 
         # Build API-friendly result payload similar to your sample
         result_payload = {
@@ -310,7 +468,9 @@ def run_kernel_measurement(self,
             if cached_payload is not None:
                 with transaction.atomic():
                     job = DetectionJob.objects.select_for_update().get(id=job_id)
-                    job.result = json.dumps(cached_payload)
+                    output_base = _job_output_base(job, str(job_id))
+                    result_payload = _materialize_kernel_cached(cached_payload, output_base, str(job_id))
+                    job.result = json.dumps(result_payload)
                     job.status = "DONE"
                     job.progress = 100
                     job.save(update_fields=["result", "status", "progress"])
@@ -321,15 +481,29 @@ def run_kernel_measurement(self,
             job.status = "PROCESSING"
             job.progress = 10
             job.save(update_fields=["status", "progress"])
+            output_base = _job_output_base(job, str(job_id))
 
         dets, meta = run_detection(image_path, confidence=0.05, model_name=model_name)
 
         # Prepare label file in expected format
-        labels_rel_path = _write_mm_norm_labels_txt(image_path, dets, meta, settings.MEDIA_ROOT)
+        labels_rel_path = _write_mm_norm_labels_txt(
+            image_path,
+            dets,
+            meta,
+            settings.MEDIA_ROOT,
+            base_name=output_base,
+            suffix=str(job_id)[:8],
+        )
         labels_abs_path = os.path.join(settings.MEDIA_ROOT, labels_rel_path)
 
         # Generate annotated image for download
-        annotated_image_rel_path = _generate_annotated_image_from_txt(str(job_id), image_path, labels_abs_path, model_name)
+        annotated_image_rel_path = _generate_annotated_image_from_txt(
+            str(job_id),
+            image_path,
+            labels_abs_path,
+            model_name,
+            base_name=output_base,
+        )
 
         # Run measurement
         allowed_ids = set()
@@ -362,6 +536,16 @@ def run_kernel_measurement(self,
                 output_dir=out_dir_abs,
             )
 
+        _, csv_target_abs = _pick_unique_relpath("measure", output_base, ".csv", str(job_id)[:8])
+        if os.path.abspath(csv_abs) != os.path.abspath(csv_target_abs):
+            os.replace(csv_abs, csv_target_abs)
+        csv_abs = csv_target_abs
+
+        _, overlay_target_abs = _pick_unique_relpath("measure", output_base, ".png", str(job_id)[:8])
+        if os.path.abspath(overlay_abs) != os.path.abspath(overlay_target_abs):
+            os.replace(overlay_abs, overlay_target_abs)
+        overlay_abs = overlay_target_abs
+
         csv_rel = os.path.relpath(csv_abs, settings.MEDIA_ROOT)
         overlay_rel = os.path.relpath(overlay_abs, settings.MEDIA_ROOT)
 
@@ -377,7 +561,7 @@ def run_kernel_measurement(self,
         }
 
         if image_digest_final and params_hash_final:
-            cached_out = store_kernel_cache(
+            store_kernel_cache(
                 image_digest_final,
                 params_hash_final,
                 descriptor,
@@ -385,8 +569,6 @@ def run_kernel_measurement(self,
                 csv_abs,
                 overlay_abs,
             )
-            if cached_out is not None:
-                result_payload = cached_out
 
         with transaction.atomic():
             job = DetectionJob.objects.select_for_update().get(id=job_id)
@@ -395,6 +577,141 @@ def run_kernel_measurement(self,
             job.status = "DONE"
             job.progress = 100
             job.save(update_fields=["result", "annotated_image", "status", "progress"])
+
+        return job_id
+
+    except Exception as e:
+        with transaction.atomic():
+            try:
+                job = DetectionJob.objects.select_for_update().get(id=job_id)
+                job.status = "FAILED"
+                job.progress = 100
+                job.result = json.dumps({
+                    "success": False,
+                    "error": str(e),
+                    "trace": getattr(e, "__class__", type(e)).__name__,
+                })
+                job.save(update_fields=["status", "progress", "result"])
+            except Exception:
+                pass
+        raise
+
+@shared_task(bind=True)
+def run_stomata_measurement(self,
+                            job_id: str,
+                            image_path: str,
+                            um_per_px: float,
+                            conf: float = 0.25,
+                            iou: float = 0.7,
+                            sam_checkpoint: str = "",
+                            sam_model_type: str = "vit_b",
+                            image_digest: str = "",
+                            params_hash: str = "") -> str:
+    """
+    Celery task to run the stomata measurement pipeline (YOLO-OBB + SAM).
+    Persists overlay + Excel under MEDIA_ROOT and stores paths + tables in job.result.
+    Returns the job_id on success.
+    """
+    try:
+        params_hash_local, descriptor = compute_stomata_params_hash(
+            um_per_px,
+            conf,
+            iou,
+            sam_checkpoint,
+            sam_model_type,
+        )
+        params_hash_final = params_hash or params_hash_local
+        if params_hash_final != params_hash_local:
+            params_hash_final = params_hash_local
+
+        image_digest_final = image_digest
+        if not image_digest_final:
+            try:
+                with open(image_path, "rb") as fh:
+                    image_digest_final = hashlib.sha256(fh.read()).hexdigest()
+            except Exception:
+                image_digest_final = ""
+
+        if image_digest_final and params_hash_final:
+            cached_payload = load_stomata_cache(image_digest_final, params_hash_final)
+            if cached_payload is not None:
+                with transaction.atomic():
+                    job = DetectionJob.objects.select_for_update().get(id=job_id)
+                    output_base = _job_output_base(job, str(job_id))
+                    result_payload = _materialize_stomata_cached(cached_payload, output_base, str(job_id))
+                    job.result = json.dumps(result_payload)
+                    job.status = "DONE"
+                    job.progress = 100
+                    job.save(update_fields=["result", "status", "progress"])
+                return job_id
+
+        with transaction.atomic():
+            job = DetectionJob.objects.select_for_update().get(id=job_id)
+            job.status = "PROCESSING"
+            job.progress = 10
+            job.save(update_fields=["status", "progress"])
+            output_base = _job_output_base(job, str(job_id))
+
+        pipeline = _load_stomata_pipeline(
+            conf=conf,
+            iou=iou,
+            um_per_px=um_per_px,
+            sam_checkpoint=sam_checkpoint,
+            sam_model_type=sam_model_type,
+        )
+
+        out_dir_abs = os.path.join(settings.MEDIA_ROOT, "stomata", str(job_id))
+        os.makedirs(out_dir_abs, exist_ok=True)
+
+        from stomataMeasure.stomata_pipeline import OutputConfig, df_to_records
+
+        out_cfg = OutputConfig(out_dir=out_dir_abs, save_overlay=True, save_excel=True)
+        image_name = output_base or os.path.basename(image_path) or str(job_id)
+        res = pipeline.run_image(image_path, out=out_cfg, image_id=image_name)
+
+        def _norm_value(v):
+            if isinstance(v, (np.floating, np.integer)):
+                return v.item()
+            if isinstance(v, float) and np.isnan(v):
+                return None
+            if isinstance(v, np.bool_):
+                return bool(v)
+            return v
+
+        summary = {k: _norm_value(v) for k, v in (res.summary or {}).items()}
+        instances = df_to_records(res.instances_df)
+
+        overlay_rel = os.path.relpath(res.overlay_path, settings.MEDIA_ROOT) if res.overlay_path else ""
+        excel_rel = os.path.relpath(res.excel_path, settings.MEDIA_ROOT) if res.excel_path else ""
+
+        result_payload = {
+            "success": True,
+            "unique_id": str(job_id),
+            "model": "stomata",
+            "stomata_overlay": overlay_rel,
+            "stomata_excel": excel_rel,
+            "summary": summary,
+            "instances": instances,
+            "detection_count": len(instances),
+            "timestamp": timezone.now().isoformat(),
+        }
+
+        if image_digest_final and params_hash_final:
+            store_stomata_cache(
+                image_digest_final,
+                params_hash_final,
+                descriptor,
+                result_payload,
+                res.overlay_path or "",
+                res.excel_path or "",
+            )
+
+        with transaction.atomic():
+            job = DetectionJob.objects.select_for_update().get(id=job_id)
+            job.result = json.dumps(result_payload)
+            job.status = "DONE"
+            job.progress = 100
+            job.save(update_fields=["result", "status", "progress"])
 
         return job_id
 
@@ -472,11 +789,12 @@ def generate_excel_report(*args, **kwargs) -> None:
         jobs = bulk_job.jobs.all()
 
         rows: List[Dict[str, Any]] = []
+        stomata_rows: List[Dict[str, Any]] = []
         all_class_cols: set[str] = set()
         bulk_model: str | None = None
 
         for job in jobs:
-            file_name = os.path.basename(job.image.name) if job.image else str(job.id)
+            file_name = (job.original_filename or os.path.basename(job.image.name)) if job.image else str(job.id)
 
             # Prefer fast parsing of pre-generated labels file
             detection_counts: Dict[str, int] = {}
@@ -514,6 +832,14 @@ def generate_excel_report(*args, **kwargs) -> None:
             if model_name and bulk_model is None:
                 bulk_model = model_name
 
+            if model_name == "stomata":
+                summary = result_data.get("summary") if isinstance(result_data, dict) else None
+                if isinstance(summary, dict):
+                    summary_row = dict(summary)
+                    summary_row.pop("image", None)
+                    stomata_rows.append({"file_name": file_name, **summary_row})
+                continue
+
             # Accumulate
             all_class_cols.update(detection_counts.keys())
             rows.append({"file_name": file_name, **detection_counts})
@@ -524,7 +850,9 @@ def generate_excel_report(*args, **kwargs) -> None:
 
         model_lower = (bulk_model or "").lower()
 
-        if model_lower == "fhb":
+        if model_lower == "stomata":
+            df = pd.DataFrame(stomata_rows).fillna(0)
+        elif model_lower == "fhb":
             rename_map = {
                 "Class_0": "healthy_spikelet",
                 "Class_1": "infected_spikelet",

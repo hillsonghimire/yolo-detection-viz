@@ -23,8 +23,8 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from celery import chord, group
 
 from .models import DetectionJob, BulkDetectionJob
-from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer
-from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement
+from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer, StomataMeasureRequestSerializer
+from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement, run_stomata_measurement
 from .detect_models import run_inference
 from .fhb_field_pipeline import run_fhb_field_pipeline
 from .detection_cache import (
@@ -36,6 +36,10 @@ from .kernel_cache import (
     normalize_allowed_ids_csv,
     compute_kernel_params_hash,
     load_kernel_cache,
+)
+from .stomata_cache import (
+    compute_stomata_params_hash,
+    load_stomata_cache,
 )
 
 
@@ -70,7 +74,7 @@ class BasicDetectView(APIView):
                 "properties": {
                     "image": {"type": "string", "format": "binary", "description": "Image file (preferred key)"},
                     "file":  {"type": "string", "format": "binary", "description": "Alternate key for image"},
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike", "stomata"], "default": "spike"},
                     "conf":  {"type": "number", "default": 0.05, "description": "Server-side min confidence (keep low)"},
                 },
                 "required": ["image"]
@@ -342,6 +346,7 @@ class LargeDetectView(APIView):
             confidence=confidence,
             status="QUEUED",
             progress=0,
+            original_filename=image.name or "",
         )
 
         image_path = job.image.path
@@ -415,6 +420,12 @@ class BulkDetectView(APIView):
         use_sam = bool(serializer.validated_data.get('use_sam', False))
         sam_checkpoint = serializer.validated_data.get('sam_checkpoint', "")
         sam_model_type = serializer.validated_data.get('sam_model_type', "vit_b")
+        um_per_px = float(serializer.validated_data.get('um_per_px', 0.3448275862))
+        stomata_iou = float(serializer.validated_data.get('iou', 0.7))
+        stomata_sam_checkpoint = serializer.validated_data.get('sam_checkpoint', "")
+        stomata_sam_model_type = serializer.validated_data.get('sam_model_type', "vit_b")
+        bulk_queue = os.getenv("CELERY_BULK_QUEUE", "celery")
+
         with transaction.atomic():
             for image_file in images:
                 job = DetectionJob.objects.create(
@@ -422,6 +433,7 @@ class BulkDetectView(APIView):
                     confidence=confidence,
                     status="QUEUED",
                     progress=0,
+                    original_filename=image_file.name or "",
                 )
                 bulk_job.jobs.add(job)
                 if model_name.lower() == "kernel":
@@ -435,17 +447,31 @@ class BulkDetectView(APIView):
                             use_sam,
                             sam_checkpoint,
                             sam_model_type,
-                        )
+                        ).set(queue=bulk_queue)
+                    )
+                elif model_name.lower() == "stomata":
+                    tasks.append(
+                        run_stomata_measurement.s(
+                            str(job.id),
+                            job.image.path,
+                            um_per_px,
+                            confidence,
+                            stomata_iou,
+                            stomata_sam_checkpoint,
+                            stomata_sam_model_type,
+                        ).set(queue=bulk_queue)
                     )
                 else:
-                    tasks.append(run_large_detection.s(str(job.id), job.image.path, confidence, model_name))
+                    tasks.append(
+                        run_large_detection.s(str(job.id), job.image.path, confidence, model_name).set(queue=bulk_queue)
+                    )
 
         # Mark bulk job as processing while individual jobs run
         bulk_job.status = "PROCESSING"
         bulk_job.save(update_fields=["status"])
 
         # Use immutable signature so Celery does not prepend header results
-        callback = generate_excel_report.si(str(bulk_job.id))
+        callback = generate_excel_report.si(str(bulk_job.id)).set(queue=bulk_queue)
         chord(group(tasks), callback).apply_async()
 
         return Response(
@@ -744,6 +770,28 @@ class KernelMeasureView(APIView):
                 status="DONE",
                 progress=100,
                 result=json.dumps(payload),
+                original_filename=original_name,
+            )
+            return Response({"unique_id": str(job.id), "success": True, "cached": True}, status=status.HTTP_200_OK)
+
+        params_hash, _descriptor = compute_stomata_params_hash(
+            s.validated_data.get("um_per_px", 0.3448275862),
+            s.validated_data.get("conf", 0.25),
+            s.validated_data.get("iou", 0.7),
+            s.validated_data.get("sam_checkpoint", ""),
+            s.validated_data.get("sam_model_type", "vit_b"),
+        )
+        cached_payload = None
+        if image_digest and params_hash:
+            cached_payload = load_stomata_cache(image_digest, params_hash)
+
+        if cached_payload is not None:
+            job = DetectionJob.objects.create(
+                image=ContentFile(raw_bytes, name=stored_name),
+                status="DONE",
+                progress=100,
+                result=json.dumps(cached_payload),
+                original_filename=original_name,
             )
             return Response({"unique_id": str(job.id), "success": True, "cached": True}, status=status.HTTP_200_OK)
 
@@ -751,6 +799,7 @@ class KernelMeasureView(APIView):
             image=ContentFile(raw_bytes, name=stored_name),
             status="QUEUED",
             progress=0,
+            original_filename=original_name,
         )
 
         image_path = job.image.path
@@ -768,3 +817,98 @@ class KernelMeasureView(APIView):
         )
 
         return Response({"unique_id": str(job.id), "success": True, "cached": False}, status=status.HTTP_202_ACCEPTED)
+
+
+class StomataMeasureView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Submit stomata measurement job",
+        description=
+        """
+        Runs the stomata pipeline (YOLO-OBB + SAM) and returns a job ID.
+        Poll jobs list or fetch the job to retrieve overlay + Excel + table data when done.
+        """,
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {'type': 'string', 'format': 'binary', 'description': 'Image to process'},
+                    'um_per_px': {'type': 'number', 'default': 0.3448275862, 'description': 'Micrometers per pixel'},
+                    'conf': {'type': 'number', 'default': 0.25},
+                    'iou': {'type': 'number', 'default': 0.7},
+                    'sam_checkpoint': {'type': 'string', 'default': ''},
+                    'sam_model_type': {'type': 'string', 'enum': ['vit_b','vit_l','vit_h'], 'default': 'vit_b'},
+                },
+                'required': ['image']
+            }
+        },
+        responses={
+            202: OpenApiResponse(
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'unique_id': {'type': 'string', 'format': 'uuid'},
+                        'success': {'type': 'boolean'},
+                        'message': {'type': 'string', 'example': 'Job submitted successfully'}
+                    }
+                },
+                description='Measurement job submitted'
+            ),
+        },
+        tags=["Detection"],
+    )
+    def post(self, request, *args, **kwargs):
+        s = StomataMeasureRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        if "image" not in request.FILES:
+            return Response({"detail": "image file is required"}, status=400)
+
+        upload = request.FILES["image"]
+        try:
+            raw_bytes = upload.read()
+        except Exception as e:
+            return Response({"detail": f"Unable to read uploaded file: {e}"}, status=400)
+
+        if not raw_bytes:
+            return Response({"detail": "Uploaded file is empty."}, status=400)
+
+        image_digest = hashlib.sha256(raw_bytes).hexdigest()
+        original_name = upload.name or "stomata-image"
+        ext = os.path.splitext(original_name)[1] or ".jpg"
+        stored_name = f"{image_digest}{ext}"
+
+        job = DetectionJob.objects.create(
+            image=ContentFile(raw_bytes, name=stored_name),
+            status="QUEUED",
+            progress=0,
+            original_filename=original_name,
+        )
+
+        um_per_px = float(s.validated_data.get("um_per_px", 0.3448275862))
+        conf = float(s.validated_data.get("conf", 0.25))
+        iou = float(s.validated_data.get("iou", 0.7))
+        sam_checkpoint = s.validated_data.get("sam_checkpoint", "")
+        sam_model_type = s.validated_data.get("sam_model_type", "vit_b")
+        params_hash, _descriptor = compute_stomata_params_hash(
+            um_per_px,
+            conf,
+            iou,
+            sam_checkpoint,
+            sam_model_type,
+        )
+
+        run_stomata_measurement.delay(
+            str(job.id),
+            job.image.path,
+            um_per_px,
+            conf,
+            iou,
+            sam_checkpoint,
+            sam_model_type,
+            image_digest,
+            params_hash,
+        )
+
+        return Response({"unique_id": str(job.id), "success": True}, status=status.HTTP_202_ACCEPTED)

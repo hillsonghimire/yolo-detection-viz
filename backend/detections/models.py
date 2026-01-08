@@ -17,6 +17,7 @@ class DetectionJob(models.Model):
     result = models.JSONField(null=True, blank=True)
     labels_file = models.CharField(max_length=255, blank=True, default="")
     annotated_image = models.CharField(max_length=255, blank=True, default="")
+    original_filename = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

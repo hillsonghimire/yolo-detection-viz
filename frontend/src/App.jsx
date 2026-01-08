@@ -5,7 +5,7 @@ import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
-import { detectOnce, measureKernel, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl, downloadMedia } from "./lib/api.js";
+import { detectOnce, measureKernel, measureStomata, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl, downloadMedia } from "./lib/api.js";
 import ZoomableImage from "./components/ZoomableImage.jsx";
 import AboutModal from "./components/AboutModal.jsx";
 import "./styles.css";
@@ -34,6 +34,14 @@ export default function App() {
   const [kmJobId, setKmJobId] = useState("");
   const [kmOverlay, setKmOverlay] = useState("");
   const [kmCSV, setKmCSV] = useState("");
+  // stomata measurement state
+  const [st, setSt] = useState({ umPerPx: 0.3448275862, conf: 0.25, iou: 0.7 });
+  const [stJobId, setStJobId] = useState("");
+  const [stOverlay, setStOverlay] = useState("");
+  const [stExcel, setStExcel] = useState("");
+  const [stSummary, setStSummary] = useState(null);
+  const [stInstances, setStInstances] = useState([]);
+  const [stInstanceLimit, setStInstanceLimit] = useState(20);
   const [downloadPreviewOpen, setDownloadPreviewOpen] = useState({});
   const [lightbox, setLightbox] = useState(null);
   const [selectedDownloadKey, setSelectedDownloadKey] = useState(null);
@@ -122,8 +130,16 @@ export default function App() {
   const placeholderWidth = Math.round(disp?.width || fallbackWidth);
   const placeholderHeight = Math.round(disp?.height || fallbackHeight);
   const kernelFrameHeight = Math.max(240, Math.round((placeholderHeight || fallbackHeight) * 1.5));
+  const formatValue = (v) => {
+    if (v == null || Number.isNaN(v)) return "—";
+    if (typeof v === "number") {
+      if (Number.isInteger(v)) return v;
+      return v.toFixed(3);
+    }
+    return String(v);
+  };
 
-  const setNewFile = (f) => {
+  const setNewFile = (f, previewUrl = "") => {
     setFile(f || null);
     setRaw([]);
     setMeta(null);
@@ -135,9 +151,16 @@ export default function App() {
     setPipelineStage(null);
     setPreviewLimit({});
     setKmJobId(""); setKmOverlay(""); setKmCSV("");
+    setStJobId(""); setStOverlay(""); setStExcel(""); setStSummary(null); setStInstances([]); setStInstanceLimit(20);
     setBulkMode(false);
-    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    urlRef.current = f ? URL.createObjectURL(f) : null;
+    if (urlRef.current && urlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(urlRef.current);
+    }
+    if (f && previewUrl) {
+      urlRef.current = previewUrl;
+    } else {
+      urlRef.current = f ? URL.createObjectURL(f) : null;
+    }
     setImageURL(urlRef.current || "");
   };
 
@@ -152,10 +175,10 @@ export default function App() {
     } else if (bulkModeRef.current) {
       return;
     }
-    if (urlRef.current) {
+    if (urlRef.current && urlRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
     }
+    urlRef.current = null;
     setFile(null);
     setImageURL("");
     setRaw([]);
@@ -164,6 +187,12 @@ export default function App() {
     setKmJobId("");
     setKmOverlay("");
     setKmCSV("");
+    setStJobId("");
+    setStOverlay("");
+    setStExcel("");
+    setStSummary(null);
+    setStInstances([]);
+    setStInstanceLimit(20);
     setDownloadPreviewOpen({});
     setLightbox(null);
     setSelectedDownloadKey(null);
@@ -229,6 +258,36 @@ export default function App() {
             break;
           }
         }
+      } else if (model === 'stomata') {
+        const { unique_id } = await measureStomata({
+          file,
+          umPerPx: st.umPerPx,
+          conf: st.conf,
+          iou: st.iou,
+        });
+        setStJobId(unique_id);
+        const deadline = Date.now() + 90000;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1500));
+          const job = await getJob(unique_id);
+          if (job?.status === 'DONE') {
+            try {
+              const res = typeof job.result === 'string' ? JSON.parse(job.result) : job.result;
+              const overlayRel = res?.stomata_overlay || '';
+              const excelRel = res?.stomata_excel || '';
+              if (overlayRel) setStOverlay(downloadMedia(overlayRel));
+              if (excelRel) setStExcel(downloadMedia(excelRel));
+              setStSummary(res?.summary || null);
+              setStInstances(Array.isArray(res?.instances) ? res.instances : []);
+              setStInstanceLimit(20);
+            } catch {}
+            break;
+          }
+          if (job?.status === 'FAILED') {
+            setMsg('Stomata measurement failed');
+            break;
+          }
+        }
       } else {
         // ONE request; later filtering is client-side
         const data = await detectOnce({ file, model, minConf: 0.05 });
@@ -248,11 +307,11 @@ export default function App() {
     }
   };
 
-  const onPickSample = async (url) => {
+  const onPickSample = async (url, previewUrl = "") => {
     const resp = await fetch(url);
     const blob = await resp.blob();
     const f = new File([blob], url.split("/").pop() || "sample.jpg", { type: blob.type || "image/jpeg" });
-    setNewFile(f);
+    setNewFile(f, previewUrl);
   };
 
   return (
@@ -368,7 +427,7 @@ export default function App() {
 
       {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
-      {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && (
+      {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && model !== 'stomata' && (
         <section className="detect-frame">
           <DetectPanel
             imageURL={imageURL}
@@ -381,6 +440,148 @@ export default function App() {
           />
           <div className="detect-controls">
             <ConfidenceRail value={conf} onChange={setConf} />
+          </div>
+        </section>
+      )}
+
+      {!bulkMode && model === 'stomata' && (
+        <section className="detect-frame">
+          <div className="panel" style={{ flex: 1, minHeight: 120, display:'flex', flexDirection:'column', alignItems:'stretch', justifyContent:'flex-start' }}>
+            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {imageURL ? (
+                <ZoomableImage
+                  src={stOverlay || imageURL}
+                  placeholder={"Upload an image to preview it here."}
+                  frameWidth={placeholderWidth}
+                  frameHeight={kernelFrameHeight}
+                  downloads={[
+                    ...(stExcel ? [{
+                      href: stExcel,
+                      label: "Download Excel",
+                      downloadName: stExcel.split("/").pop() || undefined,
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                      ),
+                    }] : []),
+                    ...(stOverlay ? [{
+                      href: stOverlay,
+                      label: "Download image",
+                      downloadName: stOverlay.split("/").pop() || undefined,
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <rect x="3" y="3" width="18" height="14" rx="2" ry="2"></rect>
+                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                          <path d="M21 17l-5-5-4 4-2-2-5 5"></path>
+                        </svg>
+                      ),
+                    }] : []),
+                  ]}
+                />
+              ) : (
+                <div
+                  className="detect-placeholder"
+                  style={{ width: placeholderWidth, height: kernelFrameHeight }}
+                >
+                  <div className="placeholder-text">Upload an image to preview it here.</div>
+                </div>
+              )}
+              {imageURL && !stOverlay && (
+                <div className="small" style={{ color: 'var(--muted)' }}>
+                  Submit to generate the stomata overlay and Excel table.
+                </div>
+              )}
+            </div>
+            <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', borderTop: '1px solid var(--line)' }}>
+              <label className="small">um per pixel</label>
+              <input className="input" style={{ width: 120 }} type="number" min="0.001" step="0.001" value={st.umPerPx}
+                onChange={(e)=> setSt(v=> ({...v, umPerPx: parseFloat(e.target.value)||0}))} />
+              <label className="small">Confidence</label>
+              <input className="input" style={{ width: 100 }} type="number" min="0" max="1" step="0.01" value={st.conf}
+                onChange={(e)=> setSt(v=> ({...v, conf: parseFloat(e.target.value)||0}))} />
+              <label className="small">IOU</label>
+              <input className="input" style={{ width: 90 }} type="number" min="0" max="1" step="0.01" value={st.iou}
+                onChange={(e)=> setSt(v=> ({...v, iou: parseFloat(e.target.value)||0}))} />
+            </div>
+            <div style={{ padding: 12, borderTop: '1px solid var(--line)' }}>
+              {stSummary ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <h4 style={{ margin: '0 0 8px' }}>Stomata Summary</h4>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Metric</th>
+                            <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(stSummary).map(([key, val]) => (
+                            <tr key={key}>
+                              <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>{key}</td>
+                              <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{formatValue(val)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  {stInstances.length ? (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px' }}>Instance Table</h4>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>UID</th>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Class</th>
+                              <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Length (um)</th>
+                              <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Width (um)</th>
+                              <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Area (um^2)</th>
+                              <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Conf</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stInstances.slice(0, stInstanceLimit).map((row, idx) => (
+                              <tr key={`${row.uid || row.instance || idx}`}>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>{row.uid ?? "-"}</td>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>{row.class_id ?? "-"}</td>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{formatValue(row["length_µm"])}</td>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{formatValue(row["width_µm"])}</td>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{formatValue(row["area_µm²"])}</td>
+                                <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{formatValue(row.confidence)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {stInstances.length > stInstanceLimit ? (
+                        <button
+                          type="button"
+                          className="btn outline"
+                          style={{ marginTop: 8 }}
+                          onClick={() => setStInstanceLimit((prev) => prev + 20)}
+                        >
+                          Show more (+20)
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="small" style={{ color: 'var(--muted)' }}>
+                      No instances found in the output table.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="small" style={{ color: 'var(--muted)' }}>
+                  Run the stomata pipeline to populate the output tables.
+                </div>
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -727,6 +928,8 @@ export default function App() {
           onExit={() => setBulkMode(false)}
           kernelParams={km}
           setKernelParams={setKm}
+          stomataParams={st}
+          setStomataParams={setSt}
         />
       )}
 

@@ -13,6 +13,7 @@ from .views import (
     DownloadMediaView,
     HealthView,
     KernelMeasureView,
+    StomataMeasureView,
     DownloadMeasureImageView,
     DownloadMeasureCSVView,
     FhbFieldPipelineView,
@@ -36,5 +37,6 @@ urlpatterns = [
     path("download/measure/csv/<str:fname>", DownloadMeasureCSVView.as_view(), name="download-measure-csv"),
     path("health/", HealthView.as_view(), name="health"),
     path("measure/kernel/", KernelMeasureView.as_view(), name="measure-kernel"),
+    path("measure/stomata/", StomataMeasureView.as_view(), name="measure-stomata"),
     path("pipeline/fhb-field/", FhbFieldPipelineView.as_view(), name="fhb-field-pipeline"),
 ]

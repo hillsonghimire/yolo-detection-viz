@@ -15,6 +15,7 @@ export default function ModelSelector({ model, setModel }){
           <option value="fhb_field">FHB Field</option>
           <option value="fdk">FDK</option>
           <option value="kernel">Kernel Size</option>
+          <option value="stomata">Stomata</option>
         </select>
       </div>
     </div>

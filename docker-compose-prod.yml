@@ -54,9 +54,10 @@ services:
       CELERY_BROKER_URL: "redis://redis:6379/0"
       # Use Redis for result backend as well to support chords/callbacks
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      MEDIA_ROOT: "/app/media"
     volumes:
       - ./models:/app/models
-      - media-data:/app/media
+      - ./media:/app/media
     restart: unless-stopped
     depends_on:
       db:
@@ -89,9 +90,10 @@ services:
       C_FORCE_ROOT: "true"
       MODEL_KERNEL: "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
+      MEDIA_ROOT: "/app/media"
     volumes:
       - ./models:/app/models
-      - media-data:/app/media
+      - ./media:/app/media
     restart: unless-stopped
     depends_on:
       backend:
@@ -144,6 +146,5 @@ services:
 
 volumes:
   db-data: {}
-  media-data: {}
   letsencrypt: {}
   certbot-webroot: {}

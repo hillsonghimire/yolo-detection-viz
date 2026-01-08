@@ -16,3 +16,5 @@ django-celery-results==2.5.1
 drf-spectacular
 drf-spectacular-sidecar
 git+https://github.com/facebookresearch/segment-anything.git
+shapely>=2.0.0
+rasterio>=1.3.9

@@ -50,6 +50,7 @@ services:
       CELERY_BROKER_URL: "redis://redis:6379/0"
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       MEDIA_ROOT: "/app/media"
+      DOWNLOAD_LABELS: "${DOWNLOAD_LABELS:-1}"
     volumes:
       - ./models:/app/models
       - ./media:/app/media
@@ -79,6 +80,7 @@ services:
       MODEL_KERNEL: "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
       MEDIA_ROOT: "/app/media"
+      DOWNLOAD_LABELS: "${DOWNLOAD_LABELS:-1}"
     volumes:
       - ./models:/app/models
       - ./media:/app/media

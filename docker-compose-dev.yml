@@ -47,6 +47,7 @@ services:
       # Use Redis for result backend as well to support chords/callbacks
       CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       MEDIA_ROOT: "/app/media"
+      DOWNLOAD_LABELS: "${DOWNLOAD_LABELS:-1}"
     volumes:
       - ./backend:/app
       - ./models:/app/models
@@ -85,6 +86,7 @@ services:
       MODEL_KERNEL: "/app/models/kernel.pt"
       DETECTION_TASK: "obb"
       MEDIA_ROOT: "/app/media"
+      DOWNLOAD_LABELS: "${DOWNLOAD_LABELS:-1}"
     volumes:
       - ./backend:/app
       - ./models:/app/models
@@ -102,6 +104,7 @@ services:
     environment:
       VITE_API_URL: "http://localhost:8000"
       VITE_API_BASE: "http://localhost:8000"
+      VITE_DOWNLOAD_LABELS: "${DOWNLOAD_LABELS:-1}"
     command: sh -lc "npm install && npm run dev -- --host 0.0.0.0"
     volumes:
       - ./frontend:/app

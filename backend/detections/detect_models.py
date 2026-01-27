@@ -184,5 +184,5 @@ def run_inference(model_name: str, image_pil, conf: float = 0.05) -> Dict[str, A
     model = load_model(model_name)
     # Apply EXIF transpose to match frontend display
     img_transposed = ImageOps.exif_transpose(image_pil).convert("RGB")
-    results = model.predict(img_transposed, conf=conf, verbose=False)
+    results = model.predict(img_transposed, conf=conf, verbose=False, max_det=5000)
     return results_to_response(results[0])

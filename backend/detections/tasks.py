@@ -34,6 +34,10 @@ from .stomata_cache import (
 )
 
 
+def _labels_enabled() -> bool:
+    return os.getenv("DOWNLOAD_LABELS", "1").strip().lower() not in ("0", "false", "no")
+
+
 # New helper function to get an axis-aligned bounding box from a polygon
 def _aabb_from_polygon(pts: List[float]) -> Tuple[int, int, int, int]:
     """Given a list of polygon points, return the axis-aligned bounding box."""
@@ -375,8 +379,9 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
 
         detections, meta = run_detection(image_path, confidence=confidence, model_name=model_name)
 
-        # Optional: write labels .txt for download
+        # Generate labels .txt for internal use; expose only when enabled
         labels_rel_path = _write_labels_txt(str(job_id), detections, base_name=output_base)
+        labels_for_download = labels_rel_path if _labels_enabled() else ""
         annotated_image_rel_path = _generate_annotated_image_from_txt(
             str(job_id),
             image_path,
@@ -399,7 +404,7 @@ def run_large_detection(self, job_id: str, image_path: str, confidence: float, m
         with transaction.atomic():
             job = DetectionJob.objects.select_for_update().get(id=job_id)
             job.result = json.dumps(result_payload)
-            job.labels_file = labels_rel_path
+            job.labels_file = labels_for_download
             job.annotated_image = annotated_image_rel_path
             job.status = "DONE"
             job.progress = 100

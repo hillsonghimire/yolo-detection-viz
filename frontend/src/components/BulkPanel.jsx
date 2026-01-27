@@ -11,6 +11,9 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
   const [jobs, setJobs] = useState([]);
   const [conf, setConf] = useState(0.25);
   const inputRef = useRef(null);
+  const allowLabelDownloads = !["0", "false", "no"].includes(
+    String(import.meta.env.VITE_DOWNLOAD_LABELS ?? "true").toLowerCase(),
+  );
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const kp = kernelParams || { sidemm: 40, allowedIds: "425,100,201,310", useSam: false, samCheckpoint: "", samModelType: "vit_b" };
@@ -377,7 +380,10 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Status</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Progress</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Detections</th>
-                <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Labels</th>
+                {allowLabelDownloads && (
+                  <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Labels</th>
+                )}
+                <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>CSV</th>
                 <th style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>Annotated</th>
               </tr>
             </thead>
@@ -387,9 +393,10 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
                 const labName = (j.labels_file || "").split("/").pop();
                 const annName = (j.annotated_image || "").split("/").pop();
                 const { overlayHref, csvHref, overlayName, csvName } = extractMeasurementAssets(j);
-                const labelsHref = csvHref || (labName ? downloadUrl('labels', labName) : null);
+                const labelsHref = labName ? downloadUrl('labels', labName) : null;
                 const annotatedHref = overlayHref || (annName ? downloadUrl('image', annName) : null);
-                const labelTitle = csvHref ? "Download measurement CSV" : "Download labels (.txt)";
+                const labelTitle = "Download labels (.txt)";
+                const csvTitle = "Download measurement CSV";
                 const annotatedTitle = overlayHref ? "Download measurement overlay" : "Download annotated image (.png)";
                 return (
                   <tr key={j.id} className="small" style={{ color: 'var(--fg)' }}>
@@ -397,9 +404,25 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.status}</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.progress ?? 0}%</td>
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{j.detection_count ?? 0}</td>
+                    {allowLabelDownloads && (
+                      <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
+                        {labelsHref ? (
+                          <a className="icon-btn" href={labelsHref} title={labelTitle} aria-label={labelTitle}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                              <path d="M14 2v6h6"></path>
+                              <path d="M16 13H8"></path>
+                              <path d="M16 17H8"></path>
+                            </svg>
+                          </a>
+                        ) : (
+                          <span className="small" style={{ color: 'var(--muted)' }}>-</span>
+                        )}
+                      </td>
+                    )}
                     <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
-                      {labelsHref ? (
-                        <a className="icon-btn" href={labelsHref} title={labelTitle} aria-label={labelTitle}>
+                      {csvHref ? (
+                        <a className="icon-btn" href={csvHref} title={csvTitle} aria-label={csvTitle}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <path d="M14 2v6h6"></path>
@@ -432,27 +455,27 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
         </div>
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn ghost" type="button" onClick={refresh}>Refresh</button>
-          <button className="btn ghost" type="button" onClick={() => {
-            const downloads = recentJobs
-              .map((job) => {
-                const { csvHref, csvName } = extractMeasurementAssets(job);
-                if (csvHref && csvName) return { href: csvHref, name: csvName };
-                const lab = (job.labels_file || "").split("/").pop();
-                if (lab) return { href: downloadUrl('labels', lab), name: lab };
-                return null;
-              })
-              .filter(Boolean);
-            downloads.forEach((item, idx) => {
-              setTimeout(() => {
-                const a = document.createElement('a');
-                a.href = item.href;
-                if (item.name) a.download = item.name;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-              }, idx * 150);
-            });
-          }}>Download All Labels</button>
+          {allowLabelDownloads && (
+            <button className="btn ghost" type="button" onClick={() => {
+              const downloads = recentJobs
+                .map((job) => {
+                  const lab = (job.labels_file || "").split("/").pop();
+                  if (lab) return { href: downloadUrl('labels', lab), name: lab };
+                  return null;
+                })
+                .filter(Boolean);
+              downloads.forEach((item, idx) => {
+                setTimeout(() => {
+                  const a = document.createElement('a');
+                  a.href = item.href;
+                  if (item.name) a.download = item.name;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                }, idx * 150);
+              });
+            }}>Download All Labels</button>
+          )}
           <button className="btn ghost" type="button" onClick={() => {
             const downloads = recentJobs
               .map((job) => {

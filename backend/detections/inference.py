@@ -62,6 +62,7 @@ def run_detection(
       meta: {"image_width": int, "image_height": int}
     """
     model = _get_model(model_name)
+    max_det = 5000
 
     digest = image_digest or (sha256_file(image_path) if use_cache else "")
     cached_payload = None
@@ -75,7 +76,7 @@ def run_detection(
         with Image.open(image_path) as img:
             img_transposed = ImageOps.exif_transpose(img).convert("RGB")
             # Run prediction and get results
-            results = model.predict(source=img_transposed, conf=confidence, verbose=False)
+            results = model.predict(source=img_transposed, conf=confidence, verbose=False, max_det=max_det)
             # Use the shared results_to_response function to normalize the output
             normalized_result = results_to_response(results[0])
         if use_cache and digest:

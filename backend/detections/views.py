@@ -539,6 +539,10 @@ class DownloadAnnotatedImageView(APIView):
         
         return FileResponse(open(path, "rb"), as_attachment=True, filename=fname, content_type="image/jpeg")
 
+def _labels_enabled() -> bool:
+    return os.getenv("DOWNLOAD_LABELS", "1").strip().lower() not in ("0", "false", "no")
+
+
 class DownloadLabelsView(APIView):
         # ... (content of DownloadLabelsView is unchanged)
     authentication_classes = [] 
@@ -568,6 +572,8 @@ class DownloadLabelsView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        if not _labels_enabled():
+            raise Http404("TXT label downloads are disabled.")
         # accept uppercase/lowercase extensions
         if not fname.lower().endswith(".txt"):
             raise Http404()

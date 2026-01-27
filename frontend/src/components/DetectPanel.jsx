@@ -33,6 +33,9 @@ export default function DetectPanel({
   const imageRef = useRef(null);
   const imageDimsRef = useRef({ w: 0, h: 0 });
   const wheelTimeoutRef = useRef(null);
+  const allowLabelDownloads = !["0", "false", "no"].includes(
+    String(import.meta.env.VITE_DOWNLOAD_LABELS ?? "true").toLowerCase(),
+  );
   const fullscreenIcon = (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <polyline points="15 3 21 3 21 9"></polyline>
@@ -193,6 +196,7 @@ export default function DetectPanel({
   };
 
   const downloadLabelsTxt = async () => {
+    if (!allowLabelDownloads) return;
     if (!detections || !detections.length) return;
     const { w: srcW, h: srcH } = await getSourceDims();
     const lines = (detections || []).map((d) => {
@@ -628,23 +632,25 @@ export default function DetectPanel({
             )}
           </div>
           <div className="legend-footer">
-            <div className="legend-actions">
-              <button
-                className="icon-btn"
-                type="button"
-                onClick={downloadLabelsTxt}
-                title="Download labels (.txt)"
-                aria-label="Download labels"
-                disabled={!(detections && detections.length)}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <path d="M14 2v6h6"></path>
-                  <path d="M16 13H8"></path>
-                  <path d="M16 17H8"></path>
-                </svg>
-              </button>
-            </div>
+            {allowLabelDownloads && (
+              <div className="legend-actions">
+                <button
+                  className="icon-btn"
+                  type="button"
+                  onClick={downloadLabelsTxt}
+                  title="Download labels (.txt)"
+                  aria-label="Download labels"
+                  disabled={!(detections && detections.length)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <path d="M14 2v6h6"></path>
+                    <path d="M16 13H8"></path>
+                    <path d="M16 17H8"></path>
+                  </svg>
+                </button>
+              </div>
+            )}
             <label className="legend-check" title="Toggle labels on boxes">
               <span>Toggle Labels</span>
               <input

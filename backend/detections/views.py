@@ -2,8 +2,10 @@
 import os
 import io
 import json
+import uuid
 import hashlib
 import mimetypes
+import random
 from typing import Dict, Any, List, Optional, Tuple
 
 from django.db import transaction
@@ -11,19 +13,38 @@ from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponse
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.contrib.auth import get_user_model
 
 from PIL import Image
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics, serializers
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, OpenApiTypes
 
 from celery import chord, group
 
-from .models import DetectionJob, BulkDetectionJob
-from .serializers import DetectionJobSerializer, DetectRequestSerializer, BulkDetectRequestSerializer, BulkDetectionJobSerializer, KernelMeasureRequestSerializer, StomataMeasureRequestSerializer
+from .models import DetectionJob, BulkDetectionJob, UserProfile
+from .serializers import (
+    DetectionJobSerializer,
+    DetectRequestSerializer,
+    BulkDetectRequestSerializer,
+    BulkDetectionJobSerializer,
+    KernelMeasureRequestSerializer,
+    StomataMeasureRequestSerializer,
+    RegistrationSerializer,
+    EmailVerificationSerializer,
+    UserSerializer,
+    UserProfileSerializer,
+)
 from .tasks import run_large_detection, generate_excel_report, run_kernel_measurement, run_stomata_measurement
 from .detect_models import run_inference
 from .fhb_field_pipeline import run_fhb_field_pipeline
@@ -57,9 +78,272 @@ def _image_dims(image_path: str) -> Tuple[int, int]:
     except Exception:
         return 0, 0
 
+
+def _accessible_detection_jobs(user, include_public: bool = False):
+    public_qs = DetectionJob.objects.filter(owner__isnull=True)
+    if not user or user.is_anonymous:
+        return public_qs if include_public else DetectionJob.objects.none()
+    qs = DetectionJob.objects.filter(owner=user)
+    if include_public:
+        qs = qs | public_qs
+    return qs
+
+
+def _accessible_bulk_jobs(user):
+    if not user or user.is_anonymous:
+        return BulkDetectionJob.objects.none()
+    return BulkDetectionJob.objects.filter(owner=user)
+
+
+def _ensure_job_access_by_rel(user, rel_path: str, field: str):
+    job = _accessible_detection_jobs(user, include_public=True).filter(**{field: rel_path}).first()
+    if not job:
+        raise Http404()
+    return job
+
+
+def _ensure_bulk_access_by_rel(user, rel_path: str, field: str):
+    job = _accessible_bulk_jobs(user).filter(**{field: rel_path}).first()
+    if not job:
+        raise Http404()
+    return job
+
+
+def _ensure_measure_access(user, rel_path: str):
+    jobs = _accessible_detection_jobs(user, include_public=True).filter(result__isnull=False)
+    for job in jobs:
+        payload = job.result
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = None
+        if isinstance(payload, dict):
+            if payload.get("measurement_csv") == rel_path or payload.get("measurement_overlay") == rel_path:
+                return job
+    raise Http404()
+
+
+def _ensure_media_access(user, rel_path: str):
+    if rel_path.startswith("fhb_field/"):
+        return None
+    jobs = _accessible_detection_jobs(user, include_public=True)
+    for job in jobs:
+        if job.labels_file == rel_path or job.annotated_image == rel_path:
+            return job
+        payload = job.result
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = None
+        if isinstance(payload, dict):
+            for value in payload.values():
+                if value == rel_path:
+                    return job
+    raise Http404()
+
+
+def _make_otp_code() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+def _build_verify_link(request, token: str) -> str:
+    frontend_base = os.environ.get("FRONTEND_BASE_URL", "").strip()
+    if frontend_base:
+        return f"{frontend_base.rstrip('/')}/?verify={token}"
+    return request.build_absolute_uri(f"/api/auth/verify/?token={token}")
+
+
+def _send_verification_email(request, user, profile: UserProfile) -> str:
+    otp = _make_otp_code()
+    profile.otp_code = otp
+    profile.otp_expires_at = timezone.now() + timezone.timedelta(minutes=15)
+    profile.verification_token = uuid.uuid4()
+    profile.verification_sent_at = timezone.now()
+    profile.save(update_fields=["otp_code", "otp_expires_at", "verification_token", "verification_sent_at"])
+
+    verify_link = _build_verify_link(request, str(profile.verification_token))
+    subject = "WheatAI - Verify your email"
+    message = (
+        f"Hi {user.first_name},\n\n"
+        f"Your verification code is: {otp}\n\n"
+        f"Or click this link to verify your email:\n{verify_link}\n\n"
+        "This code will expire in 15 minutes."
+    )
+    send_mail(
+        subject,
+        message,
+        getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@wheatai.local"),
+        [user.email],
+        fail_silently=True,
+    )
+    return verify_link
+
+
+def _authenticate_from_query(request):
+    if request.user and not request.user.is_anonymous:
+        return request.user
+    token = (request.query_params.get("token") or "").strip()
+    if not token:
+        return None
+    try:
+        access = AccessToken(token)
+        user_id = access.get("user_id")
+        user = get_user_model().objects.get(id=user_id)
+        request.user = user
+        return user
+    except Exception as exc:
+        raise PermissionDenied("Invalid token.") from exc
+
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        s = RegistrationSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        data = s.validated_data
+        first_name = data["first_name"].strip()
+        last_name = data["last_name"].strip()
+        org_name = data["organization"].strip()
+        if not first_name:
+            raise ValidationError({"first_name": "First name is required."})
+        if not last_name:
+            raise ValidationError({"last_name": "Last name is required."})
+        if not org_name:
+            raise ValidationError({"organization": "Organization is required."})
+        User = get_user_model()
+        if data["password"] != data["confirm_password"]:
+            raise ValidationError({"confirm_password": "Passwords do not match."})
+        if User.objects.filter(username=data["username"]).exists():
+            raise ValidationError({"username": "Username is already taken."})
+        if User.objects.filter(email__iexact=data["email"]).exists():
+            raise ValidationError({"email": "Email is already registered."})
+        user = User.objects.create_user(
+            username=data["username"],
+            email=data["email"],
+            password=data["password"],
+            first_name=first_name,
+            last_name=last_name,
+            is_active=False,
+        )
+        profile = UserProfile.objects.create(
+            user=user,
+            organization=org_name,
+            email_verified=False,
+        )
+        verify_link = _send_verification_email(request, user, profile)
+        return Response(
+            {
+                "message": "Verification sent to your email.",
+                "verification_link": verify_link,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MeView(APIView):
+    def get(self, request, *args, **kwargs):
+        return Response(
+            {
+                "user": UserSerializer(request.user).data,
+                "profile": UserProfileSerializer(request.user.profile).data if hasattr(request.user, "profile") else None,
+            }
+        )
+
+class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        s = EmailVerificationSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        token = (s.validated_data.get("token") or "").strip()
+        otp_code = (s.validated_data.get("otp_code") or "").strip()
+        email = (s.validated_data.get("email") or "").strip().lower()
+        profile = None
+        if token:
+            profile = get_object_or_404(UserProfile, verification_token=token)
+        elif otp_code and email:
+            user = get_object_or_404(get_user_model(), email__iexact=email)
+            profile = getattr(user, "profile", None)
+        else:
+            raise ValidationError("Provide token or email + otp_code.")
+
+        if not profile:
+            raise ValidationError("Invalid verification request.")
+        if profile.email_verified:
+            return Response({"message": "Email already verified."})
+        if otp_code:
+            if not profile.otp_code or otp_code != profile.otp_code:
+                raise ValidationError({"otp_code": "Invalid OTP code."})
+            if profile.otp_expires_at and profile.otp_expires_at < timezone.now():
+                raise ValidationError({"otp_code": "OTP code has expired."})
+
+        user = profile.user
+        profile.email_verified = True
+        profile.otp_code = ""
+        profile.otp_expires_at = None
+        profile.save(update_fields=["email_verified", "otp_code", "otp_expires_at"])
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+        return Response({"message": "Email verified successfully."})
+
+    def get(self, request, *args, **kwargs):
+        token = (request.query_params.get("token") or "").strip()
+        if not token:
+            raise ValidationError({"token": "Token is required"})
+        profile = get_object_or_404(UserProfile, verification_token=token)
+        if profile.email_verified:
+            return HttpResponse("Email already verified.")
+        user = profile.user
+        profile.email_verified = True
+        profile.otp_code = ""
+        profile.otp_expires_at = None
+        profile.save(update_fields=["email_verified", "otp_code", "otp_expires_at"])
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+        return HttpResponse("Email verified successfully. You can close this window.")
+
+
+class ResendVerificationView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        s = EmailVerificationSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        email = (s.validated_data.get("email") or "").strip().lower()
+        if not email:
+            raise ValidationError({"email": "Email is required"})
+        user = get_object_or_404(get_user_model(), email__iexact=email)
+        profile = getattr(user, "profile", None)
+        if not profile:
+            raise ValidationError("Profile not found.")
+        if profile.email_verified:
+            return Response({"message": "Email already verified."})
+        link = _send_verification_email(request, user, profile)
+        return Response({"message": "Verification sent.", "verification_link": link})
+
+
+class VerifiedTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        user = self.user
+        profile = getattr(user, "profile", None)
+        if not user.is_active:
+            raise ValidationError("Account is inactive. Verify your email first.")
+        if profile and not profile.email_verified:
+            raise ValidationError("Email is not verified.")
+        return data
+
+
+class VerifiedTokenObtainPairView(TokenObtainPairView):
+    serializer_class = VerifiedTokenObtainPairSerializer
+
 class BasicDetectView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -189,8 +473,7 @@ class FhbFieldPipelineView(APIView):
       2) Orientation classification to keep good spikes
       3) FHB detection + per-image aggregation (Excel + JSON summary)
     """
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -259,8 +542,7 @@ class FhbFieldPipelineView(APIView):
         return Response(payload, status=200)
 
 class HealthView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Health check",
@@ -273,6 +555,7 @@ class HealthView(APIView):
 
 class LargeDetectView(APIView):
     # ... (content of LargeDetectView is unchanged)
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -340,6 +623,7 @@ class LargeDetectView(APIView):
         image = request.FILES["image"]
         confidence = float(s.validated_data.get("confidence", 0.25))
         model_name = s.validated_data.get("model", "spike")
+        owner = request.user if not request.user.is_anonymous else None
 
         job = DetectionJob.objects.create(
             image=image,
@@ -347,6 +631,7 @@ class LargeDetectView(APIView):
             status="QUEUED",
             progress=0,
             original_filename=image.name or "",
+            owner=owner,
         )
 
         image_path = job.image.path
@@ -402,17 +687,23 @@ class BulkDetectView(APIView):
         tags=["Detection"],
     )
     def post(self, request, *args, **kwargs):
+        if request.user.is_anonymous:
+            raise PermissionDenied("Login required for bulk processing.")
         serializer = BulkDetectRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         images = request.FILES.getlist('images')
         confidence = serializer.validated_data.get('confidence', 0.25)
         model_name = serializer.validated_data.get('model', 'spike')
+        owner = request.user if not request.user.is_anonymous else None
 
         if not images:
             return Response({"detail": "No images provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        bulk_job = BulkDetectionJob.objects.create(status="PENDING")
+        bulk_job = BulkDetectionJob.objects.create(
+            status="PENDING",
+            owner=owner,
+        )
         
         tasks = []
         sidemm = float(serializer.validated_data.get('sidemm', 40.0))
@@ -434,6 +725,7 @@ class BulkDetectView(APIView):
                     status="QUEUED",
                     progress=0,
                     original_filename=image_file.name or "",
+                    owner=owner,
                 )
                 bulk_job.jobs.add(job)
                 if model_name.lower() == "kernel":
@@ -482,22 +774,25 @@ class BulkDetectView(APIView):
 class BulkJobsView(generics.ListAPIView):
     """List all bulk detection jobs."""
     serializer_class = BulkDetectionJobSerializer
-    queryset = BulkDetectionJob.objects.all().order_by("-created_at")
+    def get_queryset(self):
+        return _accessible_bulk_jobs(self.request.user).order_by("-created_at")
 
 class JobDetailView(generics.RetrieveAPIView):
     serializer_class = DetectionJobSerializer
-    queryset = DetectionJob.objects.all()
     lookup_field = "id"
+    permission_classes = [AllowAny]
+    def get_queryset(self):
+        return _accessible_detection_jobs(self.request.user, include_public=True)
 
 class ListJobsView(generics.ListAPIView):
     """List all individual detection jobs with filtering and pagination support."""
     serializer_class = DetectionJobSerializer
-    queryset = DetectionJob.objects.all().order_by("-created_at")
+    def get_queryset(self):
+        return _accessible_detection_jobs(self.request.user).order_by("-created_at")
 
 class DownloadAnnotatedImageView(APIView):
     # ... (content of DownloadAnnotatedImageView is unchanged)
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Download annotated image with bounding boxes",
@@ -522,6 +817,7 @@ class DownloadAnnotatedImageView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        _authenticate_from_query(request)
         # accept uppercase/lowercase extensions
         import os
         ext = os.path.splitext(fname)[1].lower()
@@ -529,6 +825,7 @@ class DownloadAnnotatedImageView(APIView):
             raise Http404()
         
         rel = f"annotated/{fname}"
+        _ensure_job_access_by_rel(request.user, rel, "annotated_image")
         path = (
             default_storage.path(rel)
             if hasattr(default_storage, "path")
@@ -545,8 +842,7 @@ def _labels_enabled() -> bool:
 
 class DownloadLabelsView(APIView):
         # ... (content of DownloadLabelsView is unchanged)
-    authentication_classes = [] 
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Download detection labels file",
@@ -572,12 +868,14 @@ class DownloadLabelsView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        _authenticate_from_query(request)
         if not _labels_enabled():
             raise Http404("TXT label downloads are disabled.")
         # accept uppercase/lowercase extensions
         if not fname.lower().endswith(".txt"):
             raise Http404()
         rel = f"labels/{fname}"
+        _ensure_job_access_by_rel(request.user, rel, "labels_file")
         path = (
             default_storage.path(rel)
             if hasattr(default_storage, "path")
@@ -592,8 +890,7 @@ class DownloadExcelView(APIView):
     GET /download/excel/<uuid>_report.xlsx
     Streams the generated Excel file.
     """
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Download bulk processing Excel report",
@@ -618,10 +915,12 @@ class DownloadExcelView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        _authenticate_from_query(request)
         if not fname.lower().endswith(".xlsx"):
             raise Http404("Invalid file extension.")
         
         rel_path = f"reports/{fname}"
+        _ensure_bulk_access_by_rel(request.user, rel_path, "excel_file")
         abs_path = os.path.join(settings.MEDIA_ROOT, rel_path)
         
         if not os.path.exists(abs_path):
@@ -638,23 +937,23 @@ class DownloadMediaView(APIView):
     """
     Generic media downloader for files produced by pipelines (FHB field, etc.).
     """
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request, rel: str):
+        _authenticate_from_query(request)
         rel_norm = os.path.normpath(rel).lstrip(os.sep)
         base = os.path.abspath(settings.MEDIA_ROOT)
         abs_path = os.path.abspath(os.path.join(base, rel_norm))
         if not abs_path.startswith(base):
             raise Http404("Invalid path")
+        _ensure_media_access(request.user, rel_norm)
         if not os.path.exists(abs_path):
             raise Http404("File not found")
         mime, _ = mimetypes.guess_type(abs_path)
         return FileResponse(open(abs_path, "rb"), as_attachment=True, filename=os.path.basename(abs_path), content_type=mime or "application/octet-stream")
 
 class DownloadMeasureImageView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Download kernel measurement overlay image",
@@ -663,15 +962,16 @@ class DownloadMeasureImageView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        _authenticate_from_query(request)
         rel = os.path.join("measure", fname)
+        _ensure_measure_access(request.user, rel)
         abs_path = os.path.join(settings.MEDIA_ROOT, rel)
         if not os.path.exists(abs_path):
             raise Http404()
         return FileResponse(open(abs_path, "rb"), as_attachment=True, filename=fname, content_type="image/png")
 
 class DownloadMeasureCSVView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     @extend_schema(
         summary="Download kernel measurement CSV",
@@ -680,7 +980,9 @@ class DownloadMeasureCSVView(APIView):
         tags=["Detection"],
     )
     def get(self, request, fname: str):
+        _authenticate_from_query(request)
         rel = os.path.join("measure", fname)
+        _ensure_measure_access(request.user, rel)
         abs_path = os.path.join(settings.MEDIA_ROOT, rel)
         if not os.path.exists(abs_path):
             raise Http404()
@@ -688,6 +990,7 @@ class DownloadMeasureCSVView(APIView):
 
 
 class KernelMeasureView(APIView):
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -743,6 +1046,8 @@ class KernelMeasureView(APIView):
         if not raw_bytes:
             return Response({"detail": "Uploaded file is empty."}, status=400)
 
+        owner = request.user if not request.user.is_anonymous else None
+
         image_digest = hashlib.sha256(raw_bytes).hexdigest()
         model_name = s.validated_data.get("model", "kernel")
         sidemm = float(s.validated_data["sidemm"])
@@ -777,6 +1082,7 @@ class KernelMeasureView(APIView):
                 progress=100,
                 result=json.dumps(payload),
                 original_filename=original_name,
+                owner=owner,
             )
             return Response({"unique_id": str(job.id), "success": True, "cached": True}, status=status.HTTP_200_OK)
 
@@ -798,6 +1104,7 @@ class KernelMeasureView(APIView):
                 progress=100,
                 result=json.dumps(cached_payload),
                 original_filename=original_name,
+                owner=owner,
             )
             return Response({"unique_id": str(job.id), "success": True, "cached": True}, status=status.HTTP_200_OK)
 
@@ -806,6 +1113,7 @@ class KernelMeasureView(APIView):
             status="QUEUED",
             progress=0,
             original_filename=original_name,
+            owner=owner,
         )
 
         image_path = job.image.path
@@ -826,6 +1134,7 @@ class KernelMeasureView(APIView):
 
 
 class StomataMeasureView(APIView):
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -880,6 +1189,8 @@ class StomataMeasureView(APIView):
         if not raw_bytes:
             return Response({"detail": "Uploaded file is empty."}, status=400)
 
+        owner = request.user if not request.user.is_anonymous else None
+
         image_digest = hashlib.sha256(raw_bytes).hexdigest()
         original_name = upload.name or "stomata-image"
         ext = os.path.splitext(original_name)[1] or ".jpg"
@@ -890,6 +1201,7 @@ class StomataMeasureView(APIView):
             status="QUEUED",
             progress=0,
             original_filename=original_name,
+            owner=owner,
         )
 
         um_per_px = float(s.validated_data.get("um_per_px", 0.3448275862))

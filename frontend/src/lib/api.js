@@ -59,6 +59,74 @@ const resolvedBase = (() => {
   return `http://localhost:${fallbackPort}`;
 })();
 const BASE = resolvedBase;
+
+const TOKEN_KEY = "yolo_auth_tokens";
+
+function readTokens() {
+  try {
+    const raw = localStorage.getItem(TOKEN_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data && data.access) return data;
+  } catch {}
+  return null;
+}
+
+function writeTokens(tokens) {
+  try {
+    if (tokens) localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+
+async function refreshAccessToken() {
+  const tokens = readTokens();
+  if (!tokens?.refresh) return null;
+  const res = await fetch(`${BASE}/api/auth/token/refresh/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: tokens.refresh }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (data?.access) {
+    const updated = { ...tokens, access: data.access };
+    writeTokens(updated);
+    return updated;
+  }
+  return null;
+}
+
+async function apiFetch(url, options = {}, { auth = true } = {}) {
+  const opts = { ...options };
+  const headers = new Headers(opts.headers || {});
+  if (auth) {
+    const tokens = readTokens();
+    if (tokens?.access) headers.set("Authorization", `Bearer ${tokens.access}`);
+  }
+  opts.headers = headers;
+  let res = await fetch(url, opts);
+  if (auth && res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed?.access) {
+      headers.set("Authorization", `Bearer ${refreshed.access}`);
+      res = await fetch(url, { ...opts, headers });
+    }
+  }
+  return res;
+}
+
+export function getStoredTokens() {
+  return readTokens();
+}
+
+export function clearTokens() {
+  writeTokens(null);
+}
+
+export function setTokens(tokens) {
+  writeTokens(tokens);
+}
 const API_TIMEOUT_MS = (() => {
   const raw = (import.meta.env?.VITE_API_TIMEOUT_MS || "").trim();
   const parsed = Number.parseInt(raw, 10);
@@ -76,7 +144,7 @@ export async function detectOnce({ file, model, minConf = 0.05 }){
   const timeout = API_TIMEOUT_MS > 0 ? setTimeout(() => controller.abort(), API_TIMEOUT_MS) : null;
   let res;
   try {
-    res = await fetch(`${BASE}/api/detect/basic/`, {
+    res = await apiFetch(`${BASE}/api/detect/basic/`, {
       method: "POST",
       body: fd,
       headers: { "Accept": "application/json" },
@@ -113,7 +181,7 @@ export async function runFhbFieldPipeline({ file, files = [], runName = "" }) {
   list.forEach((f) => fd.append("images", f, f.name || "upload.jpg"));
   if (runName) fd.append("run_name", runName);
 
-  const res = await fetch(`${BASE}/api/pipeline/fhb-field/`, { method: "POST", body: fd });
+  const res = await apiFetch(`${BASE}/api/pipeline/fhb-field/`, { method: "POST", body: fd });
   if (!res.ok) {
     let msg = "";
     try { msg = await res.text(); } catch {}
@@ -157,7 +225,7 @@ export async function submitBulk({ files, model, confidence = 0.25, kernelParams
     fd.append("um_per_px", String(umPerPx));
     fd.append("iou", String(iou));
   }
-  const res = await fetch(`${BASE}/api/detect/bulk/`, {
+  const res = await apiFetch(`${BASE}/api/detect/bulk/`, {
     method: "POST",
     body: fd,
   });
@@ -183,7 +251,7 @@ export async function submitBulk({ files, model, confidence = 0.25, kernelParams
 }
 
 export async function listBulkJobs() {
-  const res = await fetch(`${BASE}/api/bulk_jobs/`);
+  const res = await apiFetch(`${BASE}/api/bulk_jobs/`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (Array.isArray(data)) return data;
@@ -193,7 +261,7 @@ export async function listBulkJobs() {
 }
 
 export async function listJobs() {
-  const res = await fetch(`${BASE}/api/jobs/`);
+  const res = await apiFetch(`${BASE}/api/jobs/`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (Array.isArray(data)) return data;
@@ -205,15 +273,19 @@ export async function listJobs() {
 export function downloadUrl(kind, fname) {
   // kind: 'excel' | 'labels' | 'image'
   const base = `${BASE}/api`;
-  if (kind === 'excel') return `${base}/download/excel/${fname}`;
-  if (kind === 'labels') return `${base}/download/${fname}`;
-  if (kind === 'image') return `${base}/download/image/${fname}`;
+  const token = readTokens()?.access || "";
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  if (kind === 'excel') return `${base}/download/excel/${fname}${qs}`;
+  if (kind === 'labels') return `${base}/download/${fname}${qs}`;
+  if (kind === 'image') return `${base}/download/image/${fname}${qs}`;
   throw new Error("unknown download kind");
 }
 
 export function downloadMedia(relPath) {
   const cleaned = String(relPath || "").replace(/^\\+|^\/+/, "");
-  return `${BASE}/api/download/media/${cleaned}`;
+  const token = readTokens()?.access || "";
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${BASE}/api/download/media/${cleaned}${qs}`;
 }
 
 // ---- Kernel measurement APIs ----
@@ -226,7 +298,7 @@ export async function measureKernel({ file, model = 'kernel', sidemm, allowedIds
   fd.append('use_sam', String(Boolean(useSam)));
   if (samCheckpoint) fd.append('sam_checkpoint', samCheckpoint);
   fd.append('sam_model_type', samModelType);
-  const res = await fetch(`${BASE}/api/measure/kernel/`, { method: 'POST', body: fd });
+  const res = await apiFetch(`${BASE}/api/measure/kernel/`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json(); // { unique_id }
 }
@@ -239,20 +311,95 @@ export async function measureStomata({ file, umPerPx = 0.3448275862, conf = 0.25
   fd.append('iou', String(iou));
   if (samCheckpoint) fd.append('sam_checkpoint', samCheckpoint);
   fd.append('sam_model_type', samModelType);
-  const res = await fetch(`${BASE}/api/measure/stomata/`, { method: 'POST', body: fd });
+  const res = await apiFetch(`${BASE}/api/measure/stomata/`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json(); // { unique_id }
 }
 
 export async function getJob(jobId){
-  const res = await fetch(`${BASE}/api/jobs/${jobId}/`);
+  const res = await apiFetch(`${BASE}/api/jobs/${jobId}/`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 export function downloadMeasure(kind, fname){
   const base = `${BASE}/api/download/measure`;
-  if (kind === 'image') return `${base}/image/${fname}`;
-  if (kind === 'csv') return `${base}/csv/${fname}`;
+  const token = readTokens()?.access || "";
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  if (kind === 'image') return `${base}/image/${fname}${qs}`;
+  if (kind === 'csv') return `${base}/csv/${fname}${qs}`;
   throw new Error('unknown measure download kind');
+}
+
+// ---- Auth / Orgs / Projects ----
+export async function registerUser({ username, email, password, confirmPassword, firstName, lastName, organization }) {
+  const res = await apiFetch(`${BASE}/api/auth/register/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username,
+      email,
+      password,
+      confirm_password: confirmPassword,
+      first_name: firstName,
+      last_name: lastName,
+      organization,
+    }),
+  }, { auth: false });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = await res.text(); } catch {}
+    throw new Error(`Registration failed: HTTP ${res.status}${msg ? " - " + msg : ""}`);
+  }
+  return res.json();
+}
+
+export async function loginUser({ username, password }) {
+  const res = await apiFetch(`${BASE}/api/auth/token/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  }, { auth: false });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = await res.text(); } catch {}
+    throw new Error(`Login failed: HTTP ${res.status}${msg ? " - " + msg : ""}`);
+  }
+  const tokens = await res.json();
+  setTokens(tokens);
+  return tokens;
+}
+
+export async function fetchMe() {
+  const res = await apiFetch(`${BASE}/api/auth/me/`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function verifyEmail({ email, otpCode, token }) {
+  const res = await apiFetch(`${BASE}/api/auth/verify/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, otp_code: otpCode, token }),
+  }, { auth: false });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = await res.text(); } catch {}
+    throw new Error(`Verification failed: HTTP ${res.status}${msg ? " - " + msg : ""}`);
+  }
+  return res.json();
+}
+
+export async function resendVerification(email) {
+  const res = await apiFetch(`${BASE}/api/auth/resend/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  }, { auth: false });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = await res.text(); } catch {}
+    throw new Error(`Resend failed: HTTP ${res.status}${msg ? " - " + msg : ""}`);
+  }
+  return res.json();
 }

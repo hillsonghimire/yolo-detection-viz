@@ -5,7 +5,23 @@ import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
 import SampleGallery from "./components/SampleGallery.jsx";
 import BulkPanel from "./components/BulkPanel.jsx";
-import { detectOnce, measureKernel, measureStomata, getJob, downloadMeasure, runFhbFieldPipeline, downloadUrl, downloadMedia } from "./lib/api.js";
+import {
+  detectOnce,
+  measureKernel,
+  measureStomata,
+  getJob,
+  downloadMeasure,
+  runFhbFieldPipeline,
+  downloadUrl,
+  downloadMedia,
+  loginUser,
+  registerUser,
+  verifyEmail,
+  resendVerification,
+  fetchMe,
+  clearTokens,
+  getStoredTokens,
+} from "./lib/api.js";
 import ZoomableImage from "./components/ZoomableImage.jsx";
 import AboutModal from "./components/AboutModal.jsx";
 import "./styles.css";
@@ -19,6 +35,24 @@ export default function App() {
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     return prefersDark ? "dark" : "light";
   });
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    firstName: "",
+    lastName: "",
+    organization: "",
+  });
+  const [authError, setAuthError] = useState("");
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [authStep, setAuthStep] = useState("form");
+  const [verifyEmailInput, setVerifyEmailInput] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [model, setModel] = useState("spike");
   const [file, setFile] = useState(null);
   const [imageURL, setImageURL] = useState("");
@@ -63,12 +97,121 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("verify");
+    if (!token) return;
+    (async () => {
+      try {
+        await verifyEmail({ token });
+        setAuthMode("login");
+        setAuthStep("form");
+        setAuthError("Email verified. Please sign in.");
+      } catch (err) {
+        setAuthError(String(err.message || err));
+      } finally {
+        setAuthModalOpen(true);
+      }
+    })();
+  }, []);
+
+  const loadSession = async () => {
+    const tokens = getStoredTokens();
+    if (!tokens) {
+      setUser(null);
+      setAuthLoading(false);
+      return;
+    }
+    try {
+      const me = await fetchMe();
+      setUser(me.user || null);
+    } catch (e) {
+      clearTokens();
+      setUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      await loadSession();
+      if (!mounted) return;
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+
+  useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") setLightbox(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      await loginUser({ username: authForm.username, password: authForm.password });
+      await loadSession();
+      setAuthModalOpen(false);
+    } catch (err) {
+      setAuthError(String(err.message || err));
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      await registerUser({
+        username: authForm.username,
+        email: authForm.email,
+        password: authForm.password,
+        confirmPassword: authForm.confirmPassword,
+        firstName: authForm.firstName,
+        lastName: authForm.lastName,
+        organization: authForm.organization,
+      });
+      setAuthStep("verify");
+      setVerifyEmailInput(authForm.email);
+      setAuthError("Verification email sent. Enter the OTP to finish setup.");
+    } catch (err) {
+      setAuthError(String(err.message || err));
+    }
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      await verifyEmail({ email: verifyEmailInput, otpCode, token: "" });
+      setAuthMode("login");
+      setAuthStep("form");
+      setAuthError("Email verified. Please sign in.");
+    } catch (err) {
+      setAuthError(String(err.message || err));
+    }
+  };
+
+  const handleResend = async () => {
+    setAuthError("");
+    try {
+      await resendVerification(verifyEmailInput);
+      setAuthError("Verification email resent.");
+    } catch (err) {
+      setAuthError(String(err.message || err));
+    }
+  };
+
+  const handleLogout = () => {
+    clearTokens();
+    setUser(null);
+    setUserMenuOpen(false);
+  };
 
   useEffect(() => {
     if (fhbFieldResult?.downloads?.length) {
@@ -98,6 +241,8 @@ export default function App() {
       document.body.style.removeProperty('--app-background-image');
     };
   }, []);
+
+  const isRegister = authMode === "register";
 
   // ——— helpers to keep class colors consistent with DetectPanel ———
   const hash = (s) => {
@@ -314,6 +459,17 @@ export default function App() {
     setNewFile(f, previewUrl);
   };
 
+  if (authLoading) {
+    return (
+      <div className="container">
+        <div className="card" style={{ maxWidth: 520, margin: "48px auto", padding: 24 }}>
+          <h2 style={{ marginTop: 0 }}>Loading...</h2>
+          <p>Checking your session.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
       <div className="header">
@@ -347,6 +503,32 @@ export default function App() {
             <span className="contact-icon" aria-hidden="true">ℹ</span>
             <span className="contact-text">About</span>
           </button>
+          <div className="user-menu">
+            <button
+              className="contact-link contact-link--block"
+              type="button"
+              onClick={() => {
+                if (!user) {
+                  setAuthMode("login");
+                  setAuthStep("form");
+                  setAuthError("");
+                  setAuthModalOpen(true);
+                  return;
+                }
+                setUserMenuOpen((v) => !v);
+              }}
+            >
+              <span className="contact-icon" aria-hidden="true">👤</span>
+              <span className="contact-text">{user ? user.username : "Sign in"}</span>
+            </button>
+            {user && userMenuOpen && (
+              <div className="user-menu__dropdown">
+                <button className="user-menu__item" type="button" onClick={handleLogout}>
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
           <div className="contact-link contact-link--block theme-toggle" role="group" aria-label="Toggle between day and night theme">
             <span className="theme-toggle__icon" aria-hidden="true">☀</span>
             <label className="theme-toggle__track">
@@ -370,6 +552,154 @@ export default function App() {
       </div>
       {/* <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p> */}
 
+      {authModalOpen && (
+        <div className="modal-overlay" onClick={() => setAuthModalOpen(false)}>
+          <div className="modal-card modal-card--auth" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ margin: 0 }}>
+                  {isRegister && authStep === "verify" ? "Verify email" : (isRegister ? "Create account" : "Sign in")}
+                </h2>
+                <p className="small" style={{ color: "var(--muted)", marginTop: 6 }}>
+                  {isRegister && authStep === "verify"
+                    ? "Enter the OTP sent to your email."
+                    : isRegister
+                    ? "Create a user account to access bulk processing."
+                    : "Sign in to access bulk processing."}
+                </p>
+              </div>
+              <button className="btn outline" type="button" onClick={() => setAuthModalOpen(false)}>Close</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button
+                className={"btn" + (!isRegister ? "" : " outline")}
+                type="button"
+                onClick={() => { setAuthMode("login"); setAuthStep("form"); }}
+              >
+                Login
+              </button>
+              <button
+                className={"btn" + (isRegister ? "" : " outline")}
+                type="button"
+                onClick={() => { setAuthMode("register"); setAuthStep("form"); }}
+              >
+                Register
+              </button>
+            </div>
+            {isRegister && authStep === "verify" ? (
+              <form onSubmit={handleVerify}>
+                <label className="small">Email</label>
+                <input
+                  className="input"
+                  type="email"
+                  value={verifyEmailInput}
+                  onChange={(e) => setVerifyEmailInput(e.target.value)}
+                  required
+                />
+                <label className="small">OTP Code</label>
+                <input
+                  className="input"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  placeholder="6-digit code"
+                  required
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button className="btn" type="submit">Verify</button>
+                  <button className="btn outline" type="button" onClick={handleResend}>Resend</button>
+                </div>
+                {authError && (
+                  <p className="small" style={{ color: "var(--danger, #d04)" }}>{authError}</p>
+                )}
+              </form>
+            ) : (
+              <form onSubmit={isRegister ? handleRegister : handleLogin}>
+                {isRegister ? (
+                  <>
+                    <label className="small">Email</label>
+                    <input
+                      className="input"
+                      type="email"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, email: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Password</label>
+                    <input
+                      className="input"
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Confirm password</label>
+                    <input
+                      className="input"
+                      type="password"
+                      value={authForm.confirmPassword}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, confirmPassword: e.target.value }))}
+                      required
+                    />
+                    <label className="small">First name</label>
+                    <input
+                      className="input"
+                      value={authForm.firstName}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, firstName: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Last name</label>
+                    <input
+                      className="input"
+                      value={authForm.lastName}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, lastName: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Username</label>
+                    <input
+                      className="input"
+                      value={authForm.username}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Organization</label>
+                    <input
+                      className="input"
+                      value={authForm.organization}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, organization: e.target.value }))}
+                      required
+                    />
+                  </>
+                ) : (
+                  <>
+                    <label className="small">Username</label>
+                    <input
+                      className="input"
+                      value={authForm.username}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
+                      required
+                    />
+                    <label className="small">Password</label>
+                    <input
+                      className="input"
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
+                      required
+                    />
+                  </>
+                )}
+                {authError && (
+                  <p className="small" style={{ color: "var(--danger, #d04)" }}>{authError}</p>
+                )}
+                <button className="btn" type="submit" style={{ marginTop: 12 }}>
+                  {isRegister ? "Create account" : "Sign in"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="topbar">
         <ModelSelector model={model} setModel={setModel} />
         <div className="mode-toggle">
@@ -388,7 +718,9 @@ export default function App() {
             <button
               type="button"
               className={`mode-toggle__option ${bulkMode ? "active" : ""}`}
-              onClick={() => setBulkMode(true)}
+              onClick={() => {
+                setBulkMode(true);
+              }}
               disabled={bulkDisabled}
               aria-disabled={bulkDisabled}
               aria-pressed={bulkMode}
@@ -930,6 +1262,13 @@ export default function App() {
           setKernelParams={setKm}
           stomataParams={st}
           setStomataParams={setSt}
+          isAuthenticated={!!user}
+          onRequireLogin={() => {
+            setAuthMode("login");
+            setAuthStep("form");
+            setAuthError("Please log in to continue with bulk processing.");
+            setAuthModalOpen(true);
+          }}
         />
       )}
 

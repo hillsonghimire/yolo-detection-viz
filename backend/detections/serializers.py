@@ -1,6 +1,7 @@
 # detections/serializers.py
 from rest_framework import serializers
-from .models import DetectionJob, BulkDetectionJob
+from django.contrib.auth import get_user_model
+from .models import DetectionJob, BulkDetectionJob, UserProfile
 from typing import Any
 import json
 
@@ -9,7 +10,19 @@ class DetectionJobSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DetectionJob
-        fields = ["id", "image", "status", "progress", "confidence", "result", "created_at", "labels_file", "annotated_image", "detection_count"]
+        fields = [
+            "id",
+            "image",
+            "status",
+            "progress",
+            "confidence",
+            "result",
+            "created_at",
+            "labels_file",
+            "annotated_image",
+            "detection_count",
+            "owner",
+        ]
     
     def get_detection_count(self, obj: Any) -> int:
         if obj.result:
@@ -45,7 +58,7 @@ class BulkDetectRequestSerializer(serializers.Serializer):
 class BulkDetectionJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = BulkDetectionJob
-        fields = ["id", "status", "created_at", "excel_file"]
+        fields = ["id", "status", "created_at", "excel_file", "owner"]
 
 
 class KernelMeasureRequestSerializer(serializers.Serializer):
@@ -69,3 +82,31 @@ class StomataMeasureRequestSerializer(serializers.Serializer):
     iou = serializers.FloatField(required=False, default=0.7, min_value=0.0, max_value=1.0)
     sam_checkpoint = serializers.CharField(required=False, allow_blank=True, default="")
     sam_model_type = serializers.ChoiceField(required=False, choices=["vit_b", "vit_l", "vit_h"], default="vit_b")
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ["id", "username", "email", "first_name", "last_name"]
+
+
+class RegistrationSerializer(serializers.Serializer):
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    username = serializers.CharField()
+    email = serializers.EmailField()
+    organization = serializers.CharField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False, allow_blank=True)
+    otp_code = serializers.CharField(required=False, allow_blank=True)
+    token = serializers.CharField(required=False, allow_blank=True)
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ["organization", "email_verified"]

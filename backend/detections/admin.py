@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DetectionJob, BulkDetectionJob
+from .models import DetectionJob, BulkDetectionJob, UserProfile
 
 @admin.register(DetectionJob)
 class DetectionJobAdmin(admin.ModelAdmin):
@@ -11,3 +11,9 @@ class BulkDetectionJobAdmin(admin.ModelAdmin):
     list_display = ("id", "status", "excel_file", "created_at")
     filter_horizontal = ("jobs",) # Allows for a nice interface to manage the ManyToMany field
     search_fields = ("id",)
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "organization", "email_verified", "verification_sent_at")
+    search_fields = ("user__username", "user__email", "organization")

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { submitBulk, listBulkJobs, listJobs, downloadUrl, downloadMeasure } from "../lib/api.js";
 
-export default function BulkPanel({ model, onExit, kernelParams, setKernelParams, stomataParams, setStomataParams }) {
+export default function BulkPanel({ model, onExit, kernelParams, setKernelParams, stomataParams, setStomataParams, isAuthenticated, onRequireLogin }) {
   const [files, setFiles] = useState([]);
   const [drag, setDrag] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -104,11 +104,12 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
     setDisclaimerAccepted(false);
   };
 
-  const disclaimerText = "Please do not upload or include any sensitive, confidential, or personal information in your submission. All tasks and files submitted will be publicly accessible. Ensure that any data you provide is appropriate for public sharing and does not contain private credentials, proprietary content, or identifying details.";
+  const disclaimerText = "Please do not upload or include any sensitive, confidential, or personal information in your submission. Ensure that any data you provide is appropriate and does not contain private credentials, proprietary content, or identifying details.";
   const canPortal = typeof document !== "undefined";
 
   const refresh = async () => {
     try {
+      if (!isAuthenticated) return;
       const [bj, j] = await Promise.all([listBulkJobs(), listJobs()]);
       setBulkJobs(Array.isArray(bj) ? bj : []);
       setJobs(Array.isArray(j) ? j : []);
@@ -117,7 +118,13 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
     }
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [isAuthenticated]);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setBulkJobs([]);
+      setJobs([]);
+    }
+  }, [isAuthenticated]);
 
   // Auto-refresh job lists every 5 seconds
   useEffect(() => {
@@ -125,9 +132,17 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
       refresh();
     }, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [isAuthenticated]);
 
   const onSubmit = async () => {
+    if (!isAuthenticated) {
+      setMessage("Please login to continue.");
+      if (typeof window !== "undefined") {
+        window.alert("Please login to continue.");
+      }
+      if (typeof onRequireLogin === "function") onRequireLogin();
+      return;
+    }
     if (!files.length) { setMessage('Please add one or more image files.'); return; }
     setSubmitting(true);
     setMessage("");
@@ -183,6 +198,11 @@ export default function BulkPanel({ model, onExit, kernelParams, setKernelParams
           {/* <button className="btn" type="button" onClick={onExit}>Exit</button> */}
         </div>
       </div>
+      {!isAuthenticated && (
+        <p className="small" style={{ color: "var(--muted)", marginTop: 0 }}>
+          Log in to start bulk processing. You can still explore the interface and prepare files.
+        </p>
+      )}
 
       <div className={"panel" + (drag ? " dragover" : "")}
         onDragEnter={onDragEnter} onDragOver={prevent} onDragLeave={onDragLeave} onDrop={onDrop}

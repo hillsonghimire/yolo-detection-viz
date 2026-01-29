@@ -1,6 +1,12 @@
 # detections/urls.py
 from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
+    RegisterView,
+    VerifyEmailView,
+    ResendVerificationView,
+    VerifiedTokenObtainPairView,
+    MeView,
     BasicDetectView, 
     LargeDetectView, 
     BulkDetectView, 
@@ -20,6 +26,12 @@ from .views import (
 )
 
 urlpatterns = [
+    path("auth/register/", RegisterView.as_view(), name="auth-register"),
+    path("auth/verify/", VerifyEmailView.as_view(), name="auth-verify"),
+    path("auth/resend/", ResendVerificationView.as_view(), name="auth-resend"),
+    path("auth/token/", VerifiedTokenObtainPairView.as_view(), name="auth-token"),
+    path("auth/token/refresh/", TokenRefreshView.as_view(), name="auth-token-refresh"),
+    path("auth/me/", MeView.as_view(), name="auth-me"),
     path("detect/basic/", BasicDetectView.as_view(), name="detect-basic"),
     path("detect/large/", LargeDetectView.as_view(), name="detect-large"),
     path("detect/bulk/", BulkDetectView.as_view(), name="detect-bulk"),

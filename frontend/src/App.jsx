@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ModelSelector from "./components/ModelSelector.jsx";
 import UploadPanel from "./components/UploadPanel.jsx";
 import DetectPanel from "./components/DetectPanel.jsx";
 import ConfidenceRail from "./components/ConfidenceRail.jsx";
@@ -53,6 +52,7 @@ export default function App() {
   const [authStep, setAuthStep] = useState("form");
   const [verifyEmailInput, setVerifyEmailInput] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [navOpen, setNavOpen] = useState(false);
   const [model, setModel] = useState("spike");
   const [file, setFile] = useState(null);
   const [imageURL, setImageURL] = useState("");
@@ -86,6 +86,21 @@ export default function App() {
   const arucoPdfHref = `${import.meta.env.BASE_URL}A4-Aruco.pdf`;
   const isFhbField = model === "fhb_field";
   const bulkDisabled = isFhbField;
+  const menuItems = [
+    { key: "spike", label: "Wheat Spike", hint: "Spike detection and counting" },
+    { key: "uav_spike", label: "UAV Spikes", hint: "Aerial spike detection (UAV)" },
+    { key: "spikelet", label: "Wheat Spikelet", hint: "Spikelet detection and counts" },
+    { key: "kernel", label: "Kernel Morphology", hint: "Kernel measurements + CSV" },
+    { key: "fhb", label: "FHB", hint: "Fusarium head blight scoring" },
+    { key: "fdk", label: "FDK", hint: "Fusarium damaged kernel" },
+    { key: "stomata", label: "Stomata", hint: "Stomata morphology + tables" },
+  ];
+  const activeMenuKey = model === "fhb_field" ? "fhb" : model;
+  const activeMenu = menuItems.find((item) => item.key === activeMenuKey) || menuItems[0];
+  const pageTitle = model === "fhb_field" ? "FHB Field Pipeline" : activeMenu.label;
+  const pageSubtitle = model === "fhb_field"
+    ? "Multi-stage field pipeline with spike detection, orientation filtering, and FHB scoring."
+    : activeMenu.hint;
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -461,8 +476,8 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="container">
-        <div className="card" style={{ maxWidth: 520, margin: "48px auto", padding: 24 }}>
+      <div className="app-shell">
+        <div className="loading-card">
           <h2 style={{ marginTop: 0 }}>Loading...</h2>
           <p>Checking your session.</p>
         </div>
@@ -471,310 +486,232 @@ export default function App() {
   }
 
   return (
-    <div className="container">
-      <div className="header">
-        <div className="brand">
-          <a className="brand-logo" href="https://wheatai.net" aria-label="Go to WheatAI homepage">
-            <img className="app-logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
-          </a>
-          <div className="brand-copy">
-            <span className="brand-name">
-              WheatAI
-              <sup className="brand-version"><em>v1.0</em></sup>
-            </span>
-            <span className="brand-tagline">AI-based Wheat Phenotyping Platform</span>
+    <div className="app-shell">
+      <header className="app-topbar">
+        <button
+          className="nav-toggle"
+          type="button"
+          aria-label="Toggle navigation"
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen((v) => !v)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        <div className="topbar__brand">
+          <img className="topbar__logo" src="/logo/Logo_2.png" alt="WheatAI logo" />
+          <div className="topbar__titles">
+            <span className="topbar__name">WheatAI</span>
+            <span className="topbar__tag">AI-based Wheat Phenotyping Platform</span>
           </div>
         </div>
-        <div className="header-actions">
-          <a
-            className="contact-link contact-link--block"
-            href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
-            aria-label="Email WheatAI team"
-          >
-            <span className="contact-icon" aria-hidden="true">✉</span>
-            <span className="contact-text">Contact</span>
-          </a>
-          <button
-            className="contact-link contact-link--block"
-            type="button"
-            onClick={() => setShowAbout(true)}
-            aria-label="Open About WheatAI"
-          >
-            <span className="contact-icon" aria-hidden="true">ℹ</span>
-            <span className="contact-text">About</span>
-          </button>
+        <div className="topbar__actions">
           <div className="user-menu">
-            <button
-              className="contact-link contact-link--block"
-              type="button"
-              onClick={() => {
-                if (!user) {
+            {user ? (
+              <>
+                <button
+                  className="topbar__account"
+                  type="button"
+                  onClick={() => setUserMenuOpen((v) => !v)}
+                >
+                  <span className="account-dot" aria-hidden="true">●</span>
+                  <span>{user.username}</span>
+                </button>
+                {userMenuOpen && (
+                  <div className="user-menu__dropdown">
+                    <button className="user-menu__item" type="button" onClick={handleLogout}>
+                      Log out
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                className="topbar__account"
+                type="button"
+                onClick={() => {
                   setAuthMode("login");
                   setAuthStep("form");
                   setAuthError("");
                   setAuthModalOpen(true);
-                  return;
-                }
-                setUserMenuOpen((v) => !v);
-              }}
-            >
-              <span className="contact-icon" aria-hidden="true">👤</span>
-              <span className="contact-text">{user ? user.username : "Sign in"}</span>
-            </button>
-            {user && userMenuOpen && (
-              <div className="user-menu__dropdown">
-                <button className="user-menu__item" type="button" onClick={handleLogout}>
-                  Log out
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="contact-link contact-link--block theme-toggle" role="group" aria-label="Toggle between day and night theme">
-            <span className="theme-toggle__icon" aria-hidden="true">☀</span>
-            <label className="theme-toggle__track">
-              <input
-                className="theme-toggle__input"
-                type="checkbox"
-                checked={theme === "dark"}
-                onChange={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-                aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
-              />
-              <span className="theme-toggle__thumb" aria-hidden="true" />
-            </label>
-            <span className="theme-toggle__icon" aria-hidden="true">☾</span>
-          </div>
-        </div>
-        <div className="brand brand--mirror">
-          <div className="brand-logo brand-logo--mirror">
-            <img className="app-logo app-logo--winter" src="/logo/WinterWheatLogo.png" alt="Winter Wheat logo" />
-          </div>
-        </div>
-      </div>
-      {/* <p className="sub">Upload an image to detect wheat spikes / spikelets with AI.</p> */}
-
-      {authModalOpen && (
-        <div className="modal-overlay" onClick={() => setAuthModalOpen(false)}>
-          <div className="modal-card modal-card--auth" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h2 style={{ margin: 0 }}>
-                  {isRegister && authStep === "verify" ? "Verify email" : (isRegister ? "Create account" : "Sign in")}
-                </h2>
-                <p className="small" style={{ color: "var(--muted)", marginTop: 6 }}>
-                  {isRegister && authStep === "verify"
-                    ? "Enter the OTP sent to your email."
-                    : isRegister
-                    ? "Create a user account to access bulk processing."
-                    : "Sign in to access bulk processing."}
-                </p>
-              </div>
-              <button className="btn outline" type="button" onClick={() => setAuthModalOpen(false)}>Close</button>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <button
-                className={"btn" + (!isRegister ? "" : " outline")}
-                type="button"
-                onClick={() => { setAuthMode("login"); setAuthStep("form"); }}
+                }}
               >
-                Login
+                Sign in
               </button>
-              <button
-                className={"btn" + (isRegister ? "" : " outline")}
-                type="button"
-                onClick={() => { setAuthMode("register"); setAuthStep("form"); }}
-              >
-                Register
-              </button>
-            </div>
-            {isRegister && authStep === "verify" ? (
-              <form onSubmit={handleVerify}>
-                <label className="small">Email</label>
-                <input
-                  className="input"
-                  type="email"
-                  value={verifyEmailInput}
-                  onChange={(e) => setVerifyEmailInput(e.target.value)}
-                  required
-                />
-                <label className="small">OTP Code</label>
-                <input
-                  className="input"
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="6-digit code"
-                  required
-                />
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <button className="btn" type="submit">Verify</button>
-                  <button className="btn outline" type="button" onClick={handleResend}>Resend</button>
-                </div>
-                {authError && (
-                  <p className="small" style={{ color: "var(--danger, #d04)" }}>{authError}</p>
-                )}
-              </form>
-            ) : (
-              <form onSubmit={isRegister ? handleRegister : handleLogin}>
-                {isRegister ? (
-                  <>
-                    <label className="small">Email</label>
-                    <input
-                      className="input"
-                      type="email"
-                      value={authForm.email}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, email: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Password</label>
-                    <input
-                      className="input"
-                      type="password"
-                      value={authForm.password}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Confirm password</label>
-                    <input
-                      className="input"
-                      type="password"
-                      value={authForm.confirmPassword}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, confirmPassword: e.target.value }))}
-                      required
-                    />
-                    <label className="small">First name</label>
-                    <input
-                      className="input"
-                      value={authForm.firstName}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, firstName: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Last name</label>
-                    <input
-                      className="input"
-                      value={authForm.lastName}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, lastName: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Username</label>
-                    <input
-                      className="input"
-                      value={authForm.username}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Organization</label>
-                    <input
-                      className="input"
-                      value={authForm.organization}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, organization: e.target.value }))}
-                      required
-                    />
-                  </>
-                ) : (
-                  <>
-                    <label className="small">Username</label>
-                    <input
-                      className="input"
-                      value={authForm.username}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
-                      required
-                    />
-                    <label className="small">Password</label>
-                    <input
-                      className="input"
-                      type="password"
-                      value={authForm.password}
-                      onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
-                      required
-                    />
-                  </>
-                )}
-                {authError && (
-                  <p className="small" style={{ color: "var(--danger, #d04)" }}>{authError}</p>
-                )}
-                <button className="btn" type="submit" style={{ marginTop: 12 }}>
-                  {isRegister ? "Create account" : "Sign in"}
-                </button>
-              </form>
             )}
           </div>
         </div>
-      )}
-
-      <div className="topbar">
-        <ModelSelector model={model} setModel={setModel} />
-        <div className="mode-toggle">
-          <span className="mode-toggle__label small">Processing Mode</span>
-          <div className="mode-toggle__options" role="group" aria-label="Choose processing mode">
-            <button
-              type="button"
-              className={`mode-toggle__option ${!bulkMode ? "active" : ""}`}
-              onClick={() => setBulkMode(false)}
-              disabled={bulkDisabled}
-              aria-disabled={bulkDisabled}
-              aria-pressed={!bulkMode}
-            >
-              Single
-            </button>
-            <button
-              type="button"
-              className={`mode-toggle__option ${bulkMode ? "active" : ""}`}
-              onClick={() => {
-                setBulkMode(true);
-              }}
-              disabled={bulkDisabled}
-              aria-disabled={bulkDisabled}
-              aria-pressed={bulkMode}
-            >
-              Bulk
-            </button>
-          </div>
-        </div>
-        {/* legend chips removed to avoid duplication; stats now inside detection panel */}
-      </div>
-
-      {!bulkMode && (
-        <div className="card input-card">
-          <div className="input-header">
-            <h3>Select or Upload Image</h3>
-            <div className="small" style={{ marginLeft: 'auto' }}>Pick a sample or upload your own</div>
-          </div>
-          <div className="input-grid">
-            <div className="input-upload">
-              <UploadPanel
-                onFile={setNewFile}
-                imageURL={imageURL}
-                fileName={file?.name || null}
-                onRun={onRun}
-                busy={busy}
-                disp={disp}
-                setDisp={setDisp}
-              />
-            </div>
-            <div className="input-gallery">
-              <SampleGallery model={model} onPick={onPickSample} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
-
-      {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && model !== 'stomata' && (
-        <section className="detect-frame">
-          <DetectPanel
-            imageURL={imageURL}
-            detections={filtered}
-            allDetections={raw}
-            meta={meta}
-            disp={disp}
-            imageName={file?.name || null}
-            model={model}
+      </header>
+      <div className="app-body">
+        {navOpen && (
+          <div
+            className="nav-scrim"
+            role="button"
+            aria-label="Close navigation"
+            tabIndex={0}
+            onClick={() => setNavOpen(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") setNavOpen(false);
+            }}
           />
-          <div className="detect-controls">
-            <ConfidenceRail value={conf} onChange={setConf} />
+        )}
+        <aside className={`sidebar ${navOpen ? "sidebar--open" : ""}`}>
+          <div className="sidebar__section">
+            <div className="sidebar__heading">Models</div>
+            <nav className="sidebar__nav">
+              {menuItems.map((item) => (
+                <button
+                  key={item.key}
+                  className={`sidebar__item ${activeMenuKey === item.key ? "active" : ""}`}
+                  type="button"
+                  onClick={() => {
+                    setModel(item.key);
+                    setNavOpen(false);
+                  }}
+                >
+                  <div className="sidebar__text">
+                    <span className="sidebar__label">{item.label}</span>
+                    <span className="sidebar__hint">{item.hint}</span>
+                  </div>
+                  <span className="sidebar__chev" aria-hidden="true">›</span>
+                </button>
+              ))}
+            </nav>
           </div>
-        </section>
-      )}
+          <div className="sidebar__footer">
+            <div className="sidebar__footer-group">
+              <button
+                className="sidebar__link"
+                type="button"
+                onClick={() => setShowAbout(true)}
+              >
+                About
+              </button>
+              <a
+                className="sidebar__link"
+                href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
+              >
+                Contact us
+              </a>
+            </div>
+            <div className="sidebar__toggle" role="group" aria-label="Toggle between day and night theme">
+              <span className="sidebar__toggle-label">Light / Dark</span>
+              <span className="sidebar__toggle-icons" aria-hidden="true">☀</span>
+              <label className="theme-toggle__track">
+                <input
+                  className="theme-toggle__input"
+                  type="checkbox"
+                  checked={theme === "dark"}
+                  onChange={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                  aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
+                />
+                <span className="theme-toggle__thumb" aria-hidden="true" />
+              </label>
+              <span className="sidebar__toggle-icons" aria-hidden="true">☾</span>
+            </div>
+          </div>
+        </aside>
+        <main className="main">
+          <div className="main-inner">
+            <div className="page-head">
+              <div className="page-title">
+                <span className="page-kicker">Model</span>
+                <h1>{pageTitle}</h1>
+                <p>{pageSubtitle}</p>
+              </div>
+              <div className="page-actions">
+                {activeMenuKey === "fhb" && (
+                  <div className="page-switch" role="group" aria-label="FHB mode">
+                    <button
+                      type="button"
+                      className={`btn outline ${model === "fhb" ? "active" : ""}`}
+                      onClick={() => setModel("fhb")}
+                    >
+                      Standard
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn outline ${model === "fhb_field" ? "active" : ""}`}
+                      onClick={() => setModel("fhb_field")}
+                    >
+                      Field Pipeline
+                    </button>
+                  </div>
+                )}
+                <div className="mode-toggle">
+                  <span className="mode-toggle__label small">Processing</span>
+                  <div className="mode-toggle__options" role="group" aria-label="Choose processing mode">
+                    <button
+                      type="button"
+                      className={`mode-toggle__option ${!bulkMode ? "active" : ""}`}
+                      onClick={() => setBulkMode(false)}
+                      disabled={bulkDisabled}
+                      aria-disabled={bulkDisabled}
+                      aria-pressed={!bulkMode}
+                    >
+                      Single
+                    </button>
+                    <button
+                      type="button"
+                      className={`mode-toggle__option ${bulkMode ? "active" : ""}`}
+                      onClick={() => {
+                        setBulkMode(true);
+                      }}
+                      disabled={bulkDisabled}
+                      aria-disabled={bulkDisabled}
+                      aria-pressed={bulkMode}
+                    >
+                      Bulk
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {!bulkMode && (
+              <div className="card input-card">
+                <div className="input-header">
+                  <h3>Select or Upload Image</h3>
+                  <div className="small" style={{ marginLeft: 'auto' }}>Pick a sample or upload your own</div>
+                </div>
+                <div className="input-grid">
+                  <div className="input-upload">
+                    <UploadPanel
+                      onFile={setNewFile}
+                      imageURL={imageURL}
+                      fileName={file?.name || null}
+                      onRun={onRun}
+                      busy={busy}
+                      disp={disp}
+                      setDisp={setDisp}
+                    />
+                  </div>
+                  <div className="input-gallery">
+                    <SampleGallery model={model} onPick={onPickSample} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
+
+            {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && model !== 'stomata' && (
+              <section className="detect-frame">
+                <DetectPanel
+                  imageURL={imageURL}
+                  detections={filtered}
+                  allDetections={raw}
+                  meta={meta}
+                  disp={disp}
+                  imageName={file?.name || null}
+                  model={model}
+                />
+                <div className="detect-controls">
+                  <ConfidenceRail value={conf} onChange={setConf} />
+                </div>
+              </section>
+            )}
 
       {!bulkMode && model === 'stomata' && (
         <section className="detect-frame">
@@ -1270,6 +1207,208 @@ export default function App() {
             setAuthModalOpen(true);
           }}
         />
+      )}
+
+          </div>
+        </main>
+      </div>
+
+      {authModalOpen && (
+        <div className="modal-overlay" onClick={() => setAuthModalOpen(false)}>
+          <div className="modal-card modal-card--auth auth-card" onClick={(e) => e.stopPropagation()}>
+            <button className="auth-close" type="button" onClick={() => setAuthModalOpen(false)} aria-label="Close">
+              ×
+            </button>
+            <div className="auth-title">
+              <span className="auth-kicker">WheatAI</span>
+              <h2>
+                {isRegister && authStep === "verify" ? "Verify email" : (isRegister ? "Create account" : "Welcome back")}
+              </h2>
+              <p className="auth-subtitle">
+                {isRegister && authStep === "verify"
+                  ? "Enter the OTP sent to your email."
+                  : isRegister
+                  ? "Create a user account to access bulk processing."
+                  : "Sign in to access bulk processing."}
+              </p>
+            </div>
+            <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
+              <button
+                className={`auth-tab ${!isRegister ? "active" : ""}`}
+                type="button"
+                onClick={() => { setAuthMode("login"); setAuthStep("form"); }}
+              >
+                Login
+              </button>
+              <button
+                className={`auth-tab ${isRegister ? "active" : ""}`}
+                type="button"
+                onClick={() => { setAuthMode("register"); setAuthStep("form"); }}
+              >
+                Register
+              </button>
+            </div>
+            {isRegister && authStep === "verify" ? (
+              <form className="auth-form" onSubmit={handleVerify}>
+                <label className="auth-label">Email</label>
+                <div className="auth-field">
+                  <span className="auth-icon" aria-hidden="true">✉</span>
+                  <input
+                    className="input input--auth"
+                    type="email"
+                    value={verifyEmailInput}
+                    onChange={(e) => setVerifyEmailInput(e.target.value)}
+                    required
+                  />
+                </div>
+                <label className="auth-label">OTP Code</label>
+                <div className="auth-field">
+                  <span className="auth-icon" aria-hidden="true">🔐</span>
+                  <input
+                    className="input input--auth"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="6-digit code"
+                    required
+                  />
+                </div>
+                <div className="auth-actions">
+                  <button className="btn" type="submit">Verify</button>
+                  <button className="btn outline" type="button" onClick={handleResend}>Resend</button>
+                </div>
+                {authError && (
+                  <p className="auth-error">{authError}</p>
+                )}
+              </form>
+            ) : (
+              <form className="auth-form" onSubmit={isRegister ? handleRegister : handleLogin}>
+                {isRegister ? (
+                  <>
+                    <label className="auth-label">Email</label>
+                    <div className="auth-field">
+                      <span className="auth-icon" aria-hidden="true">✉</span>
+                      <input
+                        className="input input--auth"
+                        type="email"
+                        value={authForm.email}
+                        onChange={(e) => setAuthForm((v) => ({ ...v, email: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="auth-grid">
+                      <div className="auth-group">
+                        <label className="auth-label">First name</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">👤</span>
+                          <input
+                            className="input input--auth"
+                            value={authForm.firstName}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, firstName: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="auth-group">
+                        <label className="auth-label">Last name</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">👤</span>
+                          <input
+                            className="input input--auth"
+                            value={authForm.lastName}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, lastName: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="auth-group">
+                        <label className="auth-label">Username</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">🏷</span>
+                          <input
+                            className="input input--auth"
+                            value={authForm.username}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="auth-group">
+                        <label className="auth-label">Organization</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">🏢</span>
+                          <input
+                            className="input input--auth"
+                            value={authForm.organization}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, organization: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="auth-grid auth-grid--stack">
+                      <div className="auth-group">
+                        <label className="auth-label">Password</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">🔒</span>
+                          <input
+                            className="input input--auth"
+                            type="password"
+                            value={authForm.password}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="auth-group">
+                        <label className="auth-label">Confirm password</label>
+                        <div className="auth-field">
+                          <span className="auth-icon" aria-hidden="true">✅</span>
+                          <input
+                            className="input input--auth"
+                            type="password"
+                            value={authForm.confirmPassword}
+                            onChange={(e) => setAuthForm((v) => ({ ...v, confirmPassword: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="auth-label">Username</label>
+                    <div className="auth-field">
+                      <span className="auth-icon" aria-hidden="true">👤</span>
+                      <input
+                        className="input input--auth"
+                        value={authForm.username}
+                        onChange={(e) => setAuthForm((v) => ({ ...v, username: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <label className="auth-label">Password</label>
+                    <div className="auth-field">
+                      <span className="auth-icon" aria-hidden="true">🔒</span>
+                      <input
+                        className="input input--auth"
+                        type="password"
+                        value={authForm.password}
+                        onChange={(e) => setAuthForm((v) => ({ ...v, password: e.target.value }))}
+                        required
+                      />
+                    </div>
+                  </>
+                )}
+                {authError && (
+                  <p className="auth-error">{authError}</p>
+                )}
+                <button className="btn auth-submit" type="submit">
+                  {isRegister ? "Create account" : "Sign in"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
       )}
 
       <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />

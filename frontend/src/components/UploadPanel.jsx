@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 /**
  * Left panel (input). Keeps aspect ratio and computes display size (disp)
@@ -10,8 +9,6 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
   const wrapRef = useRef(null);
   const fileInputRef = useRef(null);
   const [vw, setVw] = useState(typeof window !== 'undefined' ? window.innerWidth : 0);
-  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // Compute a shared display size for the detection canvas based on
   // the upload panel column width for consistent layout.
@@ -59,30 +56,8 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
 
   const handleChooseClick = () => {
     if (busy) return;
-    if (disclaimerAccepted) {
-      triggerFileDialog();
-    } else {
-      setShowDisclaimer(true);
-    }
+    triggerFileDialog();
   };
-
-  const handleAcceptDisclaimer = () => {
-    if (busy) return;
-    setDisclaimerAccepted(true);
-    setShowDisclaimer(false);
-    // Defer opening the file picker until after the overlay unmounts
-    setTimeout(() => {
-      triggerFileDialog();
-    }, 0);
-  };
-
-  const handleDeclineDisclaimer = () => {
-    setShowDisclaimer(false);
-    setDisclaimerAccepted(false);
-  };
-
-  const disclaimerText = "Please do not upload or include any sensitive, confidential, or personal information in your submission. All tasks and files submitted will be publicly accessible. Ensure that any data you provide is appropriate for public sharing and does not contain private credentials, proprietary content, or identifying details.";
-  const canPortal = typeof document !== "undefined";
 
   return (
     <div
@@ -106,46 +81,15 @@ export default function UploadPanel({ onFile, imageURL, fileName, onRun, busy, d
             onChange={(e) => handleSelect(e.target.files?.[0] || null)}
             style={{ display: "none" }}
           />
-          <div className="disclaimer-wrap">
-            <button
-              className="btn"
-              type="button"
-              onClick={handleChooseClick}
-              disabled={busy}
-              title="Select an image file"
-            >
-              Choose Image
-            </button>
-            {showDisclaimer && !busy && canPortal && createPortal(
-              <div className="disclaimer-overlay" role="alertdialog" aria-modal="true">
-                <div className="disclaimer-dialog">
-                  <p className="disclaimer-text">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 2a1 1 0 0 1 .87.49l10 17a1 1 0 0 1-.87 1.51H2a1 1 0 0 1-.87-1.51l10-17A1 1 0 0 1 12 2zm0 3.54L4.62 19h14.76L12 5.54zM11 10h2v5h-2zm0 6h2v2h-2z"/>
-                    </svg>
-                    {disclaimerText}
-                  </p>
-                  <div className="disclaimer-actions">
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={handleAcceptDisclaimer}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      className="btn outline"
-                      onClick={handleDeclineDisclaimer}
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              </div>,
-              document.body
-            )}
-          </div>
+          <button
+            className="btn"
+            type="button"
+            onClick={handleChooseClick}
+            disabled={busy}
+            title="Select an image file"
+          >
+            Choose Image
+          </button>
           <button className="btn" onClick={onRun} disabled={busy || !imageURL}>
             {busy ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

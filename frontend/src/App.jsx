@@ -579,38 +579,37 @@ export default function App() {
               ))}
             </nav>
           </div>
-          <div className="sidebar__footer">
-            <div className="sidebar__footer-group">
-              <button
-                className="sidebar__link"
-                type="button"
-                onClick={() => setShowAbout(true)}
-              >
-                About
-              </button>
-              <a
-                className="sidebar__link"
-                href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
-              >
-                Contact us
-              </a>
+            <div className="sidebar__footer">
+              <div className="sidebar__footer-group">
+                <button
+                  className="sidebar__link"
+                  type="button"
+                  onClick={() => setShowAbout(true)}
+                >
+                  About
+                </button>
+                <a
+                  className="sidebar__link"
+                  href="mailto:maitiniyazi.maimaitijiang@sdstate.edu,sunish.sehgal@sdstate.edu?subject=WheatAI%3A&cc=hillson.ghimire@sdstate.edu"
+                >
+                  Contact us
+                </a>
+              </div>
+              <div className="sidebar__toggle" role="group" aria-label="Toggle between day and night theme">
+                <span className="sidebar__toggle-icons" aria-hidden="true">★</span>
+                <label className="theme-toggle__track">
+                  <input
+                    className="theme-toggle__input"
+                    type="checkbox"
+                    checked={theme === "dark"}
+                    onChange={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                    aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
+                  />
+                  <span className="theme-toggle__thumb" aria-hidden="true" />
+                </label>
+                <span className="sidebar__toggle-icons" aria-hidden="true">☾</span>
+              </div>
             </div>
-            <div className="sidebar__toggle" role="group" aria-label="Toggle between day and night theme">
-              <span className="sidebar__toggle-label">Light / Dark</span>
-              <span className="sidebar__toggle-icons" aria-hidden="true">☀</span>
-              <label className="theme-toggle__track">
-                <input
-                  className="theme-toggle__input"
-                  type="checkbox"
-                  checked={theme === "dark"}
-                  onChange={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-                  aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
-                />
-                <span className="theme-toggle__thumb" aria-hidden="true" />
-              </label>
-              <span className="sidebar__toggle-icons" aria-hidden="true">☾</span>
-            </div>
-          </div>
         </aside>
         <main className="main">
           <div className="main-inner">

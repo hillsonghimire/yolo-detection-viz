@@ -23,6 +23,7 @@ export default function DetectPanel({
   const containerRef = useRef(null);
   const [showLabels, setShowLabels] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const legendDismissedRef = useRef(false);
   // legend now rendered as DOM panel on the right
   const legendRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -452,6 +453,18 @@ export default function DetectPanel({
     img.src = imageURL;
   }, [imageURL, detections, meta, frameWidth, frameHeight, disp, showLabels, lineWidth, colorOf, zoom, offset]);
 
+  // Auto-open legend when detections arrive; respect user close until detections clear.
+  useEffect(() => {
+    const hasDetections = Array.isArray(detections) && detections.length > 0;
+    if (hasDetections && !legendDismissedRef.current) {
+      setLegendOpen(true);
+    }
+    if (!hasDetections) {
+      legendDismissedRef.current = false;
+      setLegendOpen(false);
+    }
+  }, [detections]);
+
   // legend size not needed
 
   // Clamp pan when zoom changes
@@ -596,7 +609,10 @@ export default function DetectPanel({
               type="button"
               className="icon-btn"
               aria-label="Hide legend"
-              onClick={() => setLegendOpen(false)}
+              onClick={() => {
+                legendDismissedRef.current = true;
+                setLegendOpen(false);
+              }}
             >
               ×
             </button>

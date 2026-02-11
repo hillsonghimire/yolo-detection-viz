@@ -38,7 +38,7 @@ class Command(BaseCommand):
             raise CommandError(f"Sample root not found: {root}")
 
         # Map folder names to model keys accepted by the API.
-        valid_models = {"spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike"}
+        valid_models = {"spike", "spikelet", "kernel_count_on_spike", "fhb", "fdk", "kernel", "uav_spike"}
         worklist: List[Tuple[str, str]] = []
 
         for entry in sorted(os.listdir(root)):

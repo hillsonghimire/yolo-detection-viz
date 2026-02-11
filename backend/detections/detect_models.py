@@ -24,6 +24,7 @@ def _fallback(fname: str) -> str:
 MODEL_REGISTRY: Dict[str, str] = {
     "spike":     os.getenv("MODEL_SPIKE",     _fallback("spike.pt")),
     "spikelet":  os.getenv("MODEL_SPIKELET",  _fallback("spikelet.pt")),
+    "kernel_count_on_spike": os.getenv("MODEL_KERNEL_COUNT_ON_SPIKE", _fallback("kernelCountOnSpike.pt")),
     "fhb":       os.getenv("MODEL_FHB",       _fallback("fhb.pt")),
     "fdk":       os.getenv("MODEL_FDK",       _fallback("fdk.pt")),
     "uav_spike": os.getenv("MODEL_UAV_SPIKE", _fallback("UAV-RGB-Spike.pt")),

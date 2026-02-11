@@ -45,6 +45,18 @@ const samples = {
     // "/samples/spikelet/spikelet11.png",
     // "/samples/spikelet/spikelet12.png",
   ],
+  kernel_count_on_spike: [
+    "/samples/WheatKernelonSpikeImage/kernelSpike1.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike2.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike3.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike4.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike5.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike6.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike7.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike8.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike9.png",
+    "/samples/WheatKernelonSpikeImage/kernelSpike10.png",
+  ],
   uav_spike: [
     "/samples/uav-spike/sample1.png",
     "/samples/uav-spike/sample2.png",

@@ -239,7 +239,7 @@ export default function DetectPanel({
       if (num === 0) return 'spike';
     } else if (model === 'uav_spike') {
       if (num === 0) return 'UAV spike';
-    } else if (model === 'spikelet') {
+    } else if (model === 'spikelet' || model === 'kernel_count_on_spike') {
       if (num === 0) return 'spikelet';
     } else if (model === 'fdk') {
       if (num === 1) return 'Healthy Kernels';

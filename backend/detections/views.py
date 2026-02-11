@@ -358,7 +358,7 @@ class BasicDetectView(APIView):
                 "properties": {
                     "image": {"type": "string", "format": "binary", "description": "Image file (preferred key)"},
                     "file":  {"type": "string", "format": "binary", "description": "Alternate key for image"},
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike", "stomata"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "kernel_count_on_spike", "fhb", "fdk", "kernel", "uav_spike", "stomata"], "default": "spike"},
                     "conf":  {"type": "number", "default": 0.05, "description": "Server-side min confidence (keep low)"},
                 },
                 "required": ["image"]
@@ -666,7 +666,7 @@ class BulkDetectView(APIView):
                         "default": 0.25,
                         "description": "Confidence threshold for detections"
                     },
-                    "model": {"type": "string", "enum": ["spike", "spikelet", "fhb", "fdk", "kernel", "uav_spike"], "default": "spike"},
+                    "model": {"type": "string", "enum": ["spike", "spikelet", "kernel_count_on_spike", "fhb", "fdk", "kernel", "uav_spike"], "default": "spike"},
                 },
                 "required": ["images", "model"]
             }

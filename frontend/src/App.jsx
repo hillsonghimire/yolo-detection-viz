@@ -87,20 +87,20 @@ export default function App() {
   const isFhbField = model === "fhb_field";
   const bulkDisabled = isFhbField;
   const menuItems = [
-    { key: "spike", label: "Wheat Spike", hint: "Spike detection and counting" },
+    { key: "spike", label: "Wheat Spike", hint: "Spike detection and count" },
     { key: "uav_spike", label: "UAV Spikes", hint: "Aerial spike detection (UAV)" },
-    { key: "spikelet", label: "Wheat Spikelet", hint: "Spikelet detection and counts" },
-    { key: "kernel", label: "Kernel Morphology", hint: "Kernel measurements + CSV" },
+    { key: "kernel_count_on_spike", label: "Wheat Kernel on Spike", hint: "Kernel counting on spike images" },
+    { key: "spikelet", label: "Wheat Spikelet", hint: "Spikelet detection and count" },
+    { key: "kernel", label: "Kernel Morphology", hint: "Kernel measurements and summary" },
     { key: "fhb", label: "FHB", hint: "Fusarium head blight scoring" },
+    { key: "fhb_field", label: "FHB Field", hint: "FHB scoring on field images" },
     { key: "fdk", label: "FDK", hint: "Fusarium damaged kernel" },
-    { key: "stomata", label: "Stomata", hint: "Stomata morphology + tables" },
+    { key: "stomata", label: "Stomata", hint: "Stomata morphology and summary" },
   ];
-  const activeMenuKey = model === "fhb_field" ? "fhb" : model;
+  const activeMenuKey = model;
   const activeMenu = menuItems.find((item) => item.key === activeMenuKey) || menuItems[0];
-  const pageTitle = model === "fhb_field" ? "FHB Field Pipeline" : activeMenu.label;
-  const pageSubtitle = model === "fhb_field"
-    ? "Multi-stage field pipeline with spike detection, orientation filtering, and FHB scoring."
-    : activeMenu.hint;
+  const pageTitle = activeMenu.label;
+  const pageSubtitle = activeMenu.hint;
 
   // display dimensions shared by both canvases (keeps sizes identical)
   const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
@@ -620,24 +620,6 @@ export default function App() {
                 <p>{pageSubtitle}</p>
               </div>
               <div className="page-actions">
-                {activeMenuKey === "fhb" && (
-                  <div className="page-switch" role="group" aria-label="FHB mode">
-                    <button
-                      type="button"
-                      className={`btn outline ${model === "fhb" ? "active" : ""}`}
-                      onClick={() => setModel("fhb")}
-                    >
-                      Standard
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn outline ${model === "fhb_field" ? "active" : ""}`}
-                      onClick={() => setModel("fhb_field")}
-                    >
-                      Field Pipeline
-                    </button>
-                  </div>
-                )}
                 <div className="mode-toggle">
                   <span className="mode-toggle__label small">Processing</span>
                   <div className="mode-toggle__options" role="group" aria-label="Choose processing mode">

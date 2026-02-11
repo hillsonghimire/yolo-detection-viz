@@ -103,7 +103,7 @@ export default function App() {
   const pageSubtitle = activeMenu.hint;
 
   // display dimensions shared by both canvases (keeps sizes identical)
-  const [disp, setDisp] = useState({ width: 0, height: 0, dpr: 1 });
+  const [disp, setDisp] = useState({ width: 420, height: 315, dpr: 1 });
   const urlRef = useRef(null);
   const bulkModeRef = useRef(bulkMode);
   useEffect(() => {
@@ -289,6 +289,8 @@ export default function App() {
   const fallbackHeight = Math.round(fallbackWidth * 0.75);
   const placeholderWidth = Math.round(disp?.width || fallbackWidth);
   const placeholderHeight = Math.round(disp?.height || fallbackHeight);
+  const detectFrameWidth = Math.max(200, placeholderWidth);
+  const detectFrameHeight = Math.max(240, Math.round((placeholderHeight || fallbackHeight) * 1.5));
   const kernelFrameHeight = Math.max(240, Math.round((placeholderHeight || fallbackHeight) * 1.5));
   const formatValue = (v) => {
     if (v == null || Number.isNaN(v)) return "—";
@@ -678,20 +680,50 @@ export default function App() {
             {msg && <div style={{ color: "#d33", marginTop: 8 }}>{msg}</div>}
 
             {!bulkMode && model !== 'kernel' && model !== 'fhb_field' && model !== 'stomata' && (
-              <section className="detect-frame">
-                <DetectPanel
-                  imageURL={imageURL}
-                  detections={filtered}
-                  allDetections={raw}
-                  meta={meta}
-                  disp={disp}
-                  imageName={file?.name || null}
-                  model={model}
-                />
-                <div className="detect-controls">
-                  <ConfidenceRail value={conf} onChange={setConf} />
-                </div>
-              </section>
+              <>
+                {/** Only show right (annotated) panel after processing results exist */}
+                <section
+                  className="detect-frame detect-row"
+                  style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "nowrap", alignItems: "stretch", overflowX: "auto" }}
+                >
+                  <div className="panel" style={{ flex: "1 1 50%", minWidth: 320, display: "flex", flexDirection: "column", justifyContent: "stretch" }}>
+                    {imageURL ? (
+                      <ZoomableImage
+                        src={imageURL}
+                        frameWidth={detectFrameWidth}
+                        frameHeight={detectFrameHeight}
+                      />
+                    ) : (
+                      <div
+                        className="detect-placeholder"
+                        style={{ width: detectFrameWidth, height: detectFrameHeight, display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        <div className="placeholder-text">Load an image to preview</div>
+                      </div>
+                    )}
+                  </div>
+                  {((Array.isArray(raw) && raw.length > 0) || !!meta) && (
+                    <div className="panel" style={{ flex: "1 1 50%", minWidth: 320, display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
+                      <div style={{ flex: 1, minHeight: 240, display: "flex" }}>
+                        <DetectPanel
+                          imageURL={imageURL}
+                          detections={filtered}
+                          allDetections={raw}
+                          meta={meta}
+                          disp={disp}
+                          imageName={file?.name || null}
+                          model={model}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </section>
+                {((Array.isArray(raw) && raw.length > 0) || !!meta) && (
+                  <div className="detect-controls" style={{ width: "100%" }}>
+                    <ConfidenceRail value={conf} onChange={setConf} />
+                  </div>
+                )}
+              </>
             )}
 
       {!bulkMode && model === 'stomata' && (

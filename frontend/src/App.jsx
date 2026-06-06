@@ -89,7 +89,7 @@ export default function App() {
   const menuItems = [
     { key: "spike", label: "Wheat Spike", hint: "Spike detection and count" },
     { key: "uav_spike", label: "UAV Spikes", hint: "Aerial spike detection (UAV)" },
-    { key: "kernel_count_on_spike", label: "Wheat Kernel on Spike", hint: "Kernel counting on spike images" },
+    { key: "kernel_count_on_spike", label: "Kernel Counting", hint: "Kernel counting on spike images" },
     { key: "spikelet", label: "Wheat Spikelet", hint: "Spikelet detection and count" },
     { key: "kernel", label: "Kernel Morphology", hint: "Kernel measurements and summary" },
     { key: "fhb", label: "FHB", hint: "Fusarium head blight scoring" },

@@ -22,6 +22,17 @@ export default function AboutModal({ open, onClose }) {
             <p>
               Development of WheatAI Version 1.0 has been supported by the South Dakota Wheat Commission, USDA Wheat CAP, South Dakota Nutrient Research and Education Council (NREC), and the South Dakota Agricultural Experiment Station (AES).
             </p>
+
+            <strong>
+              If you use WheatAI in your work, please cite this preprint:
+              <a href="https://arxiv.org/abs/2601.08863" target="_blank" rel="noopener noreferrer">
+                https://arxiv.org/abs/2601.08863
+              </a>
+            </strong>
+
+            <strong>
+              Disclaimer: This website is not an official website of South Dakota State University. The views and opinions expressed on this site are solely those of the author(s) and do not represent the official positions, policies, or views of South Dakota State University.
+            </strong>
           </div>
         </div>
       </div>

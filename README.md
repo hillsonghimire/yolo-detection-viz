@@ -55,6 +55,7 @@ Uploaded images stored under `backend/media/uploads` (mounted to a volume).
   `docker compose -f docker-compose-prod.yml up -d nginx` (serves with a self-signed cert) →  
   `docker compose -f docker-compose-prod.yml --profile certbot run --rm certbot` (issues Let’s Encrypt cert via webroot) →  
   `docker compose -f docker-compose-prod.yml restart nginx` (reloads the real cert). Subsequent renewals can reuse the same command.
+- After the first successful issuance, keep `certbot-renew` running in the production stack. It renews against the same Docker `letsencrypt` volume every 12 hours, and the Nginx entrypoint automatically reloads when `fullchain.pem` or `privkey.pem` changes.
 - Until the Let’s Encrypt certificate is in place the site will present the bundled self-signed certificate, so expect browsers to flag it as insecure during the first step above.
 - The production compose file runs Gunicorn behind Nginx; the Django port is only exposed internally so always call the API through `https://wheatai.net/api/...`.
 - Request timeouts are tuned for long detections (Nginx 300 s, frontend 180 s, Gunicorn `${GUNICORN_TIMEOUT:-300}`); raise these if your workloads need more time.

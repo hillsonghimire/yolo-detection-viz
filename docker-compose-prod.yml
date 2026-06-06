@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: yoloapp
       POSTGRES_USER: yolo
@@ -14,6 +15,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   redis:
     image: redis:7-alpine
@@ -129,7 +131,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/selfsigned:/etc/selfsigned:ro
+      # - ./nginx/selfsigned:/etc/selfsigned:ro
       - letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot
       - ./frontend/dist:/usr/share/nginx/html:ro
@@ -146,7 +148,25 @@ services:
       - letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot
     restart: "no"
-    profiles: ["certbot"]
+
+  certbot-renew:
+    image: certbot/certbot:latest
+    depends_on:
+      nginx:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        while true; do
+          certbot renew --webroot -w /var/www/certbot --quiet || true
+          sleep 12h
+        done
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    restart: unless-stopped
 
 volumes:
   db-data: {}
